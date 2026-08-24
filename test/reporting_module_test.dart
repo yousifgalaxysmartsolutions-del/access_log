@@ -43,13 +43,21 @@ void main() {
       ),
       isEmpty,
     );
+    final employee = MockData.teamMembers.first.name;
+    expect(
+      applyReportingFilter(
+        MockData.capIncidents,
+        month.copyWith(employee: employee),
+      ).every((item) => item.currentUser == employee),
+      isTrue,
+    );
   });
 
   testWidgets('reporting home opens all three report types', (tester) async {
     await phone(tester);
     await tester.pumpWidget(app(const Scaffold(body: ReportingScreen())));
 
-    expect(find.text('Report Summary'), findsOneWidget);
+    expect(find.text('Report Types'), findsOneWidget);
     expect(find.text('Incident Report'), findsOneWidget);
     expect(find.text('Engineer Activity Report'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -139,19 +147,21 @@ void main() {
       await phone(tester);
       await tester.pumpWidget(
         app(
-          const Scaffold(body: ReportingScreen()),
+          const IncidentReportScreen(
+            initialFilter: ReportingFilter(range: ReportRange.month),
+          ),
           locale: const Locale('ar'),
         ),
       );
 
-      expect(find.text('ملخص التقارير'), findsOneWidget);
+      expect(find.text('تقرير البلاغات'), findsOneWidget);
       expect(
         tester
             .widget<Directionality>(find.byType(Directionality).first)
             .textDirection,
         TextDirection.rtl,
       );
-      await tester.tap(find.byTooltip('فلاتر التقارير'));
+      await tester.tap(find.byTooltip('الفلاتر'));
       await tester.pumpAndSettle();
       expect(find.text('فلاتر التقارير'), findsOneWidget);
       expect(find.text('من تاريخ'), findsNothing);

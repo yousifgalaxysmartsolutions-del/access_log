@@ -27,13 +27,14 @@ class ReportingFilter {
     this.area,
     this.site,
     this.type,
+    this.employee,
     this.status,
     this.priority,
   });
 
   final ReportRange range;
   final DateTime? from, to;
-  final String? region, area, site, type;
+  final String? region, area, site, type, employee;
   final CapIncidentStatus? status;
   final Priority? priority;
 
@@ -42,6 +43,7 @@ class ReportingFilter {
       area != null ||
       site != null ||
       type != null ||
+      employee != null ||
       status != null ||
       priority != null ||
       from != null ||
@@ -55,12 +57,14 @@ class ReportingFilter {
     String? area,
     String? site,
     String? type,
+    String? employee,
     CapIncidentStatus? status,
     Priority? priority,
     bool clearRegion = false,
     bool clearArea = false,
     bool clearSite = false,
     bool clearType = false,
+    bool clearEmployee = false,
     bool clearStatus = false,
     bool clearPriority = false,
   }) => ReportingFilter(
@@ -71,6 +75,7 @@ class ReportingFilter {
     area: clearArea ? null : area ?? this.area,
     site: clearSite ? null : site ?? this.site,
     type: clearType ? null : type ?? this.type,
+    employee: clearEmployee ? null : employee ?? this.employee,
     status: clearStatus ? null : status ?? this.status,
     priority: clearPriority ? null : priority ?? this.priority,
   );
@@ -103,6 +108,7 @@ List<CapIncident> applyReportingFilter(
         matches(incident.area, filter.area) &&
         matches(incident.siteName, filter.site) &&
         matches(incident.type, filter.type) &&
+        matches(incident.currentUser, filter.employee) &&
         (filter.status == null || incident.status == filter.status) &&
         (filter.priority == null || incident.priority == filter.priority);
   }).toList();
@@ -295,37 +301,132 @@ class _ReportingScreenState extends State<ReportingScreen> {
   }
 }
 
-class RequestFlowReportScreen extends StatelessWidget {
+class _RequestReportFilter {
+  const _RequestReportFilter({
+    this.range = ReportRange.month,
+    this.from,
+    this.to,
+    this.type,
+    this.status,
+    this.createdBy,
+    this.incidentNumber,
+    this.site,
+  });
+
+  final ReportRange range;
+  final DateTime? from, to;
+  final RelatedRequestType? type;
+  final MyRequestStatus? status;
+  final String? createdBy, incidentNumber, site;
+
+  bool get active =>
+      range != ReportRange.month ||
+      from != null ||
+      to != null ||
+      type != null ||
+      status != null ||
+      createdBy != null ||
+      incidentNumber != null ||
+      site != null;
+}
+
+class RequestFlowReportScreen extends StatefulWidget {
   const RequestFlowReportScreen({super.key});
 
   @override
+  State<RequestFlowReportScreen> createState() =>
+      _RequestFlowReportScreenState();
+}
+
+class _RequestFlowReportScreenState extends State<RequestFlowReportScreen> {
+  _RequestReportFilter filter = const _RequestReportFilter();
+
+  List<MyRequest> get requests {
+    DateTime? start;
+    DateTime? end = DateTime(2026, 8, 10, 23, 59, 59);
+    switch (filter.range) {
+      case ReportRange.today:
+        start = DateTime(2026, 8, 10);
+      case ReportRange.week:
+        start = DateTime(2026, 8, 4);
+      case ReportRange.month:
+        start = DateTime(2026, 8, 1);
+      case ReportRange.custom:
+        start = filter.from;
+        end = filter.to?.add(const Duration(days: 1));
+    }
+    final items = MockData.myRequests.where((request) {
+      bool match(Object value, Object? expected) =>
+          expected == null || value == expected;
+      return (start == null || !request.createdDate.isBefore(start)) &&
+          (end == null || request.createdDate.isBefore(end)) &&
+          match(request.type, filter.type) &&
+          match(request.status, filter.status) &&
+          match(request.createdBy, filter.createdBy) &&
+          match(request.incidentNumber, filter.incidentNumber) &&
+          match(request.siteName, filter.site);
+    }).toList()..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    return items;
+  }
+
+  Future<void> _openFilters() async {
+    final result = await showModalBottomSheet<_RequestReportFilter>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RequestReportFilterSheet(initial: filter),
+    );
+    if (result != null && mounted) setState(() => filter = result);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final requests = List<MyRequest>.of(MockData.myRequests)
-      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    final items = requests;
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr('Request Flow Report', 'تقرير مسار الطلبات')),
+        actions: [
+          IconButton(
+            tooltip: context.tr('Request Filters', 'فلاتر الطلبات'),
+            onPressed: _openFilters,
+            icon: Badge(
+              isLabelVisible: filter.active,
+              backgroundColor: AppColors.orange,
+              smallSize: 9,
+              child: const Icon(Icons.tune_rounded),
+            ),
+          ),
+        ],
       ),
-      body: requests.isEmpty
+      body: items.isEmpty
           ? EmptyState(
               icon: Icons.account_tree_outlined,
               title: context.tr('No Requests Available', 'لا توجد طلبات'),
               description: context.tr(
-                'Created requests will appear in this flow report.',
-                'ستظهر الطلبات المنشأة في تقرير المسار.',
+                'No requests match the selected filters.',
+                'لا توجد طلبات تطابق الفلاتر المحددة.',
               ),
             )
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
               children: [
-                _RequestStatusSummary(requests: requests),
+                if (filter.active) ...[
+                  _ActiveReportFilterBanner(
+                    count: items.length,
+                    onReset: () =>
+                        setState(() => filter = const _RequestReportFilter()),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                _RequestStatusSummary(requests: items),
                 const SizedBox(height: 18),
                 Text(
                   context.tr('Request Lifecycles', 'مسارات الطلبات'),
                   style: AppTypography.title,
                 ),
                 const SizedBox(height: 10),
-                ...requests.map(
+                ...items.map(
                   (request) => Padding(
                     padding: const EdgeInsets.only(bottom: 11),
                     child: _RequestFlowCard(request: request),
@@ -335,6 +436,282 @@ class RequestFlowReportScreen extends StatelessWidget {
             ),
     );
   }
+}
+
+class _ActiveReportFilterBanner extends StatelessWidget {
+  const _ActiveReportFilterBanner({required this.count, required this.onReset});
+  final int count;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(13),
+    decoration: BoxDecoration(
+      color: AppColors.info.withValues(alpha: .08),
+      borderRadius: BorderRadius.circular(AppRadius.control),
+      border: Border.all(color: AppColors.info.withValues(alpha: .3)),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.filter_alt, color: AppColors.info),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            context.strings.isArabic
+                ? '$count نتيجة مطابقة للفلاتر'
+                : '$count results match active filters',
+            style: AppTypography.label,
+          ),
+        ),
+        TextButton(
+          onPressed: onReset,
+          child: Text(context.tr('Reset', 'إعادة ضبط')),
+        ),
+      ],
+    ),
+  );
+}
+
+class _RequestReportFilterSheet extends StatefulWidget {
+  const _RequestReportFilterSheet({required this.initial});
+  final _RequestReportFilter initial;
+
+  @override
+  State<_RequestReportFilterSheet> createState() =>
+      _RequestReportFilterSheetState();
+}
+
+class _RequestReportFilterSheetState extends State<_RequestReportFilterSheet> {
+  late _RequestReportFilter value = widget.initial;
+
+  List<String> _values(String Function(MyRequest request) read) =>
+      MockData.myRequests.map(read).toSet().toList()..sort();
+
+  List<String> get sites =>
+      MockData.myRequests
+          .where(
+            (item) =>
+                value.incidentNumber == null ||
+                item.incidentNumber == value.incidentNumber,
+          )
+          .map((item) => item.siteName)
+          .toSet()
+          .toList()
+        ..sort();
+
+  Future<void> _pickDate(bool from) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: from
+          ? value.from ?? DateTime(2026, 8, 1)
+          : value.to ?? DateTime(2026, 8, 10),
+      firstDate: DateTime(2026),
+      lastDate: DateTime(2027),
+    );
+    if (picked == null) return;
+    setState(
+      () => value = _RequestReportFilter(
+        range: ReportRange.custom,
+        from: from ? picked : value.from,
+        to: from ? value.to : picked,
+        type: value.type,
+        status: value.status,
+        createdBy: value.createdBy,
+        incidentNumber: value.incidentNumber,
+        site: value.site,
+      ),
+    );
+  }
+
+  _RequestReportFilter _copy({
+    ReportRange? range,
+    RelatedRequestType? type,
+    MyRequestStatus? status,
+    String? createdBy,
+    String? incidentNumber,
+    String? site,
+    bool clearType = false,
+    bool clearStatus = false,
+    bool clearCreatedBy = false,
+    bool clearIncident = false,
+    bool clearSite = false,
+  }) => _RequestReportFilter(
+    range: range ?? value.range,
+    from: value.from,
+    to: value.to,
+    type: clearType ? null : type ?? value.type,
+    status: clearStatus ? null : status ?? value.status,
+    createdBy: clearCreatedBy ? null : createdBy ?? value.createdBy,
+    incidentNumber: clearIncident
+        ? null
+        : incidentNumber ?? value.incidentNumber,
+    site: clearSite ? null : site ?? value.site,
+  );
+
+  String _typeLabel(BuildContext context, RelatedRequestType type) =>
+      switch (type) {
+        RelatedRequestType.intervention => context.tr('Intervention', 'تدخل'),
+        RelatedRequestType.renewal => context.tr('Renewal', 'تجديد'),
+        RelatedRequestType.departure => context.tr('Departure', 'مغادرة'),
+      };
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    child: DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: .9,
+      minChildSize: .55,
+      maxChildSize: .96,
+      builder: (_, controller) => Column(
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 42,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 13, 8, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    context.tr('Request Report Filters', 'فلاتر تقرير الطلبات'),
+                    style: AppTypography.title,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
+              children: [
+                _RangeSelector(
+                  value: value.range,
+                  onChanged: (range) =>
+                      setState(() => value = _copy(range: range)),
+                ),
+                if (value.range == ReportRange.custom) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DateButton(
+                          label: context.tr('Date From', 'من تاريخ'),
+                          value: value.from,
+                          onTap: () => _pickDate(true),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _DateButton(
+                          label: context.tr('Date To', 'إلى تاريخ'),
+                          value: value.to,
+                          onTap: () => _pickDate(false),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 18),
+                _FilterDropdown<RelatedRequestType>(
+                  label: context.tr('Request Type', 'نوع الطلب'),
+                  value: value.type,
+                  values: RelatedRequestType.values,
+                  labelOf: (item) => _typeLabel(context, item),
+                  onChanged: (item) => setState(
+                    () => value = _copy(type: item, clearType: item == null),
+                  ),
+                ),
+                _FilterDropdown<MyRequestStatus>(
+                  label: context.tr('Status', 'الحالة'),
+                  value: value.status,
+                  values: MyRequestStatus.values,
+                  labelOf: (item) => _requestReportStatusLabel(context, item),
+                  onChanged: (item) => setState(
+                    () =>
+                        value = _copy(status: item, clearStatus: item == null),
+                  ),
+                ),
+                _FilterDropdown<String>(
+                  label: context.tr('Created By', 'أنشئ بواسطة'),
+                  value: value.createdBy,
+                  values: _values((item) => item.createdBy),
+                  labelOf: (item) => item,
+                  onChanged: (item) => setState(
+                    () => value = _copy(
+                      createdBy: item,
+                      clearCreatedBy: item == null,
+                    ),
+                  ),
+                ),
+                _FilterDropdown<String>(
+                  label: context.tr('Incident Number', 'رقم البلاغ'),
+                  value: value.incidentNumber,
+                  values: _values((item) => item.incidentNumber),
+                  labelOf: (item) => item,
+                  onChanged: (item) => setState(
+                    () => value = _copy(
+                      incidentNumber: item,
+                      clearIncident: item == null,
+                      clearSite: true,
+                    ),
+                  ),
+                ),
+                _FilterDropdown<String>(
+                  label: context.tr('Site', 'الموقع'),
+                  value: value.site,
+                  values: sites,
+                  labelOf: (item) => context.mockText(item),
+                  onChanged: (item) => setState(
+                    () => value = _copy(site: item, clearSite: item == null),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: AppButton(
+                      label: context.tr('Reset', 'إعادة ضبط'),
+                      style: AppButtonStyle.outline,
+                      onPressed: () =>
+                          setState(() => value = const _RequestReportFilter()),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: AppButton(
+                      label: context.tr('Apply Filters', 'تطبيق الفلاتر'),
+                      onPressed: () => Navigator.pop(context, value),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _RequestStatusSummary extends StatelessWidget {
@@ -1007,6 +1384,8 @@ class _IncidentReportScreenState extends State<IncidentReportScreen> {
   }
 }
 
+enum _EngineerGroupBy { engineer, region, area, site }
+
 class EngineerActivityReportScreen extends StatefulWidget {
   const EngineerActivityReportScreen({super.key, required this.filter});
 
@@ -1021,55 +1400,242 @@ class _EngineerActivityReportScreenState
     extends State<EngineerActivityReportScreen> {
   static const allSites = '__all_sites__';
   final Map<String, String> selectedSites = {};
+  _EngineerGroupBy groupBy = _EngineerGroupBy.engineer;
+  late ReportingFilter activeFilter;
+
+  @override
+  void initState() {
+    super.initState();
+    activeFilter = widget.filter;
+  }
+
+  Future<void> _openFilters() async {
+    final result = await showModalBottomSheet<ReportingFilter>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ReportingFilterSheet(initial: activeFilter),
+    );
+    if (result != null && mounted) setState(() => activeFilter = result);
+  }
+
+  String _groupLabel(BuildContext context, _EngineerGroupBy value) =>
+      switch (value) {
+        _EngineerGroupBy.engineer => context.tr('Engineer', 'المهندس'),
+        _EngineerGroupBy.region => context.tr('Region', 'الإقليم'),
+        _EngineerGroupBy.area => context.tr('Area', 'المنطقة'),
+        _EngineerGroupBy.site => context.tr('Site', 'الموقع'),
+      };
+
+  String _groupValue(CapIncident incident) => switch (groupBy) {
+    _EngineerGroupBy.engineer => incident.currentUser,
+    _EngineerGroupBy.region => incident.region,
+    _EngineerGroupBy.area => incident.area,
+    _EngineerGroupBy.site => incident.siteName,
+  };
+
+  Widget _engineerCard({
+    required BuildContext context,
+    required TeamMember member,
+    required List<CapIncident> scope,
+    required String groupKey,
+  }) {
+    final assigned = scope
+        .where((item) => item.currentUser == member.name)
+        .toList();
+    final sites = <String, CapIncident>{};
+    for (final incident in assigned) {
+      sites.putIfAbsent(incident.siteCode, () => incident);
+    }
+    final selectionKey = '$groupKey|${member.name}';
+    final selected = selectedSites[selectionKey] ?? allSites;
+    final visible = selected == allSites
+        ? assigned
+        : assigned.where((item) => item.siteCode == selected).toList();
+    return _EngineerReportCard(
+      member: member,
+      incidents: visible,
+      sites: sites,
+      showSiteFilter: groupBy != _EngineerGroupBy.site,
+      selectedSite: selected,
+      onSiteChanged: (value) =>
+          setState(() => selectedSites[selectionKey] = value),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EngineerReportDetailsScreen(
+            member: member,
+            incidents: assigned,
+            filter: activeFilter,
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final incidents = applyReportingFilter(
-      MockData.capIncidents,
-      widget.filter,
-    );
+    final incidents = applyReportingFilter(MockData.capIncidents, activeFilter);
+    final groups = <String, List<CapIncident>>{};
+    if (groupBy != _EngineerGroupBy.engineer) {
+      for (final incident in incidents) {
+        groups.putIfAbsent(_groupValue(incident), () => []).add(incident);
+      }
+    }
+    final sortedGroups = groups.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
     return Scaffold(
       appBar: AppBar(
         title: Text(
           context.tr('Engineer Activity Report', 'تقرير أنشطة المهندسين'),
         ),
+        actions: [
+          IconButton(
+            tooltip: context.tr('Report Filters', 'فلاتر التقرير'),
+            onPressed: _openFilters,
+            icon: Badge(
+              isLabelVisible: activeFilter.hasOptionalFilters,
+              backgroundColor: AppColors.orange,
+              smallSize: 9,
+              child: const Icon(Icons.tune_rounded),
+            ),
+          ),
+        ],
       ),
-      body: ListView.separated(
+      body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
-        itemCount: MockData.teamMembers.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 11),
-        itemBuilder: (_, index) {
-          final member = MockData.teamMembers[index];
-          final assigned = incidents
-              .where((item) => item.currentUser == member.name)
-              .toList();
-          final sites = <String, CapIncident>{};
-          for (final incident in assigned) {
-            sites.putIfAbsent(incident.siteCode, () => incident);
-          }
-          final selected = selectedSites[member.name] ?? allSites;
-          final visible = selected == allSites
-              ? assigned
-              : assigned.where((item) => item.siteCode == selected).toList();
-          return _EngineerReportCard(
-            member: member,
-            incidents: visible,
-            sites: sites,
-            selectedSite: selected,
-            onSiteChanged: (value) =>
-                setState(() => selectedSites[member.name] = value),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => EngineerReportDetailsScreen(
-                  member: member,
-                  incidents: assigned,
-                  filter: widget.filter,
+        children: [
+          SectionCard(
+            title: context.tr(
+              'Group Engineer Reports',
+              'تجميع تقارير المهندسين',
+            ),
+            icon: Icons.account_tree_outlined,
+            child: DropdownButtonFormField<_EngineerGroupBy>(
+              initialValue: groupBy,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: context.tr('Group by', 'تجميع حسب'),
+                prefixIcon: const Icon(Icons.layers_outlined),
+                helperText: context.tr(
+                  'Groups update automatically when employees or locations are added.',
+                  'تتحدث المجموعات تلقائيًا عند إضافة موظفين أو مواقع.',
                 ),
               ),
+              items: _EngineerGroupBy.values
+                  .map(
+                    (value) => DropdownMenuItem(
+                      value: value,
+                      child: Text(_groupLabel(context, value)),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => groupBy = value);
+              },
             ),
-          );
-        },
+          ),
+          const SizedBox(height: 14),
+          if (activeFilter.hasOptionalFilters) ...[
+            Container(
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                color: AppColors.info.withValues(alpha: .08),
+                borderRadius: BorderRadius.circular(AppRadius.control),
+                border: Border.all(color: AppColors.info.withValues(alpha: .3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.filter_alt, color: AppColors.info),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      context.strings.isArabic
+                          ? '${incidents.length} بلاغًا مطابقًا للفلاتر النشطة'
+                          : '${incidents.length} incidents match active filters',
+                      style: AppTypography.label,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () =>
+                        setState(() => activeFilter = const ReportingFilter()),
+                    child: Text(context.tr('Reset', 'إعادة ضبط')),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+          if (groupBy == _EngineerGroupBy.engineer)
+            ...MockData.teamMembers.expand(
+              (member) => [
+                if (activeFilter.employee == null ||
+                    activeFilter.employee == member.name) ...[
+                  _engineerCard(
+                    context: context,
+                    member: member,
+                    scope: incidents,
+                    groupKey: 'all',
+                  ),
+                  const SizedBox(height: 11),
+                ],
+              ],
+            )
+          else if (sortedGroups.isEmpty)
+            EmptyState(
+              icon: Icons.location_off_outlined,
+              title: context.tr('No groups found', 'لا توجد مجموعات'),
+              description: context.tr(
+                'No engineer activity matches the selected period.',
+                'لا توجد أنشطة مهندسين تطابق الفترة المحددة.',
+              ),
+            )
+          else
+            ...sortedGroups.map((entry) {
+              final members = MockData.teamMembers
+                  .where(
+                    (member) => entry.value.any(
+                      (incident) => incident.currentUser == member.name,
+                    ),
+                  )
+                  .toList();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 11),
+                child: Card(
+                  child: ExpansionTile(
+                    initiallyExpanded: true,
+                    leading: const CircleAvatar(
+                      backgroundColor: AppColors.orange,
+                      child: Icon(Icons.location_on, color: AppColors.ink),
+                    ),
+                    title: Text(
+                      context.mockText(entry.key),
+                      style: AppTypography.section,
+                    ),
+                    subtitle: Text(
+                      context.strings.isArabic
+                          ? '${members.length} مهندس • ${entry.value.length} بلاغ'
+                          : '${members.length} engineers • ${entry.value.length} incidents',
+                    ),
+                    children: members
+                        .map(
+                          (member) => Padding(
+                            padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                            child: _engineerCard(
+                              context: context,
+                              member: member,
+                              scope: entry.value,
+                              groupKey: '${groupBy.name}:${entry.key}',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              );
+            }),
+        ],
       ),
     );
   }
@@ -1358,6 +1924,26 @@ class _ReportingFilterSheetState extends State<ReportingFilterSheet> {
   List<String> _values(String Function(CapIncident item) read) =>
       MockData.capIncidents.map(read).toSet().toList()..sort();
 
+  List<String> get _areas =>
+      MockData.capIncidents
+          .where((item) => value.region == null || item.region == value.region)
+          .map((item) => item.area)
+          .toSet()
+          .toList()
+        ..sort();
+
+  List<String> get _sites =>
+      MockData.capIncidents
+          .where(
+            (item) =>
+                (value.region == null || item.region == value.region) &&
+                (value.area == null || item.area == value.area),
+          )
+          .map((item) => item.siteName)
+          .toSet()
+          .toList()
+        ..sort();
+
   Future<void> _date(bool from) async {
     final picked = await showDatePicker(
       context: context,
@@ -1465,30 +2051,46 @@ class _ReportingFilterSheetState extends State<ReportingFilterSheet> {
                     () => value = value.copyWith(
                       region: item,
                       clearRegion: item == null,
+                      clearArea: true,
+                      clearSite: true,
                     ),
                   ),
                 ),
                 _FilterDropdown<String>(
                   label: context.tr('Area', 'المنطقة'),
                   value: value.area,
-                  values: _values((item) => item.area),
+                  values: _areas,
                   labelOf: (item) => context.mockText(item),
                   onChanged: (item) => setState(
                     () => value = value.copyWith(
                       area: item,
                       clearArea: item == null,
+                      clearSite: true,
                     ),
                   ),
                 ),
                 _FilterDropdown<String>(
                   label: context.tr('Site', 'الموقع'),
                   value: value.site,
-                  values: _values((item) => item.siteName),
+                  values: _sites,
                   labelOf: (item) => context.mockText(item),
                   onChanged: (item) => setState(
                     () => value = value.copyWith(
                       site: item,
                       clearSite: item == null,
+                    ),
+                  ),
+                ),
+                _FilterDropdown<String>(
+                  label: context.tr('Employee', 'الموظف'),
+                  value: value.employee,
+                  values: MockData.teamMembers.map((item) => item.name).toList()
+                    ..sort(),
+                  labelOf: (item) => item,
+                  onChanged: (item) => setState(
+                    () => value = value.copyWith(
+                      employee: item,
+                      clearEmployee: item == null,
                     ),
                   ),
                 ),
@@ -2006,6 +2608,7 @@ class _EngineerReportCard extends StatelessWidget {
     required this.member,
     required this.incidents,
     required this.sites,
+    required this.showSiteFilter,
     required this.selectedSite,
     required this.onSiteChanged,
     required this.onTap,
@@ -2013,6 +2616,7 @@ class _EngineerReportCard extends StatelessWidget {
   final TeamMember member;
   final List<CapIncident> incidents;
   final Map<String, CapIncident> sites;
+  final bool showSiteFilter;
   final String selectedSite;
   final ValueChanged<String> onSiteChanged;
   final VoidCallback onTap;
@@ -2078,54 +2682,56 @@ class _EngineerReportCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              const Icon(
-                Icons.filter_alt_outlined,
-                size: 18,
-                color: AppColors.orange,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                context.tr('Filter sites', 'تصفية المواقع'),
-                style: AppTypography.label,
-              ),
-            ],
-          ),
-          const SizedBox(height: 9),
-          SizedBox(
-            height: 38,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
+          if (showSiteFilter) ...[
+            const SizedBox(height: 14),
+            Row(
               children: [
-                ChoiceChip(
-                  label: Text(context.tr('All Sites', 'كل المواقع')),
-                  selected:
-                      selectedSite ==
-                      _EngineerActivityReportScreenState.allSites,
-                  onSelected: (_) => onSiteChanged(
-                    _EngineerActivityReportScreenState.allSites,
-                  ),
+                const Icon(
+                  Icons.filter_alt_outlined,
+                  size: 18,
+                  color: AppColors.orange,
                 ),
-                ...sites.entries.map(
-                  (entry) => Padding(
-                    padding: const EdgeInsetsDirectional.only(start: 7),
-                    child: ChoiceChip(
-                      label: Text(
-                        context.mockText(entry.value.siteName),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      selected: selectedSite == entry.key,
-                      onSelected: (_) => onSiteChanged(entry.key),
-                    ),
-                  ),
+                const SizedBox(width: 7),
+                Text(
+                  context.tr('Filter sites', 'تصفية المواقع'),
+                  style: AppTypography.label,
                 ),
               ],
             ),
-          ),
-          if (sites.isEmpty) ...[
+            const SizedBox(height: 9),
+            SizedBox(
+              height: 38,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  ChoiceChip(
+                    label: Text(context.tr('All Sites', 'كل المواقع')),
+                    selected:
+                        selectedSite ==
+                        _EngineerActivityReportScreenState.allSites,
+                    onSelected: (_) => onSiteChanged(
+                      _EngineerActivityReportScreenState.allSites,
+                    ),
+                  ),
+                  ...sites.entries.map(
+                    (entry) => Padding(
+                      padding: const EdgeInsetsDirectional.only(start: 7),
+                      child: ChoiceChip(
+                        label: Text(
+                          context.mockText(entry.value.siteName),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        selected: selectedSite == entry.key,
+                        onSelected: (_) => onSiteChanged(entry.key),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (showSiteFilter && sites.isEmpty) ...[
             const SizedBox(height: 8),
             Align(
               alignment: AlignmentDirectional.centerStart,

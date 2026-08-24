@@ -522,10 +522,8 @@ class _GeneralTab extends StatelessWidget {
             const SizedBox(height: 10),
             //   MiniLocationCard(site: context.mockText(incident.siteName)),
             const SizedBox(height: 12),
-            AppButton(
-              label: context.tr('Directions to Tower', 'الاتجاه إلى البرج'),
-              icon: Icons.directions_outlined,
-              expanded: true,
+            _ModernDirectionsButton(
+              siteName: context.mockText(incident.siteName),
               onPressed: () => _openDirections(context),
             ),
           ],
@@ -570,6 +568,106 @@ class _GeneralTab extends StatelessWidget {
         ),
       ),
     ],
+  );
+}
+
+class _ModernDirectionsButton extends StatelessWidget {
+  const _ModernDirectionsButton({
+    required this.siteName,
+    required this.onPressed,
+  });
+
+  final String siteName;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: context.tr('Directions to Tower', 'الاتجاه إلى البرج'),
+    child: Material(
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [AppColors.orange, Color(0xFFFFA640)],
+            begin: AlignmentDirectional.centerStart,
+            end: AlignmentDirectional.centerEnd,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.orange.withValues(alpha: .24),
+              blurRadius: 16,
+              offset: const Offset(0, 7),
+            ),
+          ],
+        ),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.ink,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: const Icon(
+                    Icons.navigation_rounded,
+                    color: AppColors.orange,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.tr('Navigate to Tower', 'الذهاب إلى البرج'),
+                        style: AppTypography.section.copyWith(
+                          color: AppColors.ink,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        siteName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.meta.copyWith(
+                          color: AppColors.ink.withValues(alpha: .68),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .44),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Directionality.of(context) == TextDirection.rtl
+                        ? Icons.arrow_back_rounded
+                        : Icons.arrow_forward_rounded,
+                    color: AppColors.ink,
+                    size: 20,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 
