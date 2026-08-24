@@ -301,7 +301,7 @@ class CapDashboardScreen extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        context.tr("Today's Incidents", 'بلاغات  اليوم'),
+                        context.tr('Currently Active', 'النشط حاليًا'),
                         style: AppTypography.title,
                       ),
                     ),

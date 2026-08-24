@@ -581,94 +581,144 @@ class _ModernDirectionsButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: context.tr('Directions to Tower', 'الاتجاه إلى البرج'),
-    child: Material(
-      color: Colors.transparent,
-      child: Ink(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [AppColors.orange, Color(0xFFFFA640)],
-            begin: AlignmentDirectional.centerStart,
-            end: AlignmentDirectional.centerEnd,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.orange.withValues(alpha: .24),
-              blurRadius: 16,
-              offset: const Offset(0, 7),
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final foreground = dark ? Colors.white : AppColors.ink;
+    return Semantics(
+      button: true,
+      label: context.tr('Open tower directions', 'فتح اتجاهات البرج'),
+      child: Material(
+        color: Colors.transparent,
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: dark
+                  ? const [Color(0xFF292929), Color(0xFF202020)]
+                  : const [Colors.white, Color(0xFFFFF6ED)],
+              begin: AlignmentDirectional.topStart,
+              end: AlignmentDirectional.bottomEnd,
             ),
-          ],
-        ),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-            child: Row(
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: const Icon(
-                    Icons.navigation_rounded,
-                    color: AppColors.orange,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.tr('Navigate to Tower', 'الذهاب إلى البرج'),
-                        style: AppTypography.section.copyWith(
-                          color: AppColors.ink,
-                          fontWeight: FontWeight.w800,
-                        ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: AppColors.orange.withValues(alpha: dark ? .5 : .32),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.orange.withValues(alpha: dark ? .12 : .16),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [AppColors.orange, Color(0xFFFF9D35)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        siteName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.meta.copyWith(
-                          color: AppColors.ink.withValues(alpha: .68),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.orange.withValues(alpha: .28),
+                          blurRadius: 12,
+                          offset: const Offset(0, 5),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.assistant_direction_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .44),
-                    shape: BoxShape.circle,
+                  const SizedBox(width: 13),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                context.tr(
+                                  'Directions to Tower',
+                                  'الاتجاه إلى البرج',
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.section.copyWith(
+                                  color: foreground,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.orange.withValues(alpha: .13),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                context.tr('MAP', 'الخريطة'),
+                                style: AppTypography.meta.copyWith(
+                                  color: AppColors.orangeDark,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          siteName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.meta.copyWith(
+                            color: dark ? Colors.white70 : AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Icon(
-                    Directionality.of(context) == TextDirection.rtl
-                        ? Icons.arrow_back_rounded
-                        : Icons.arrow_forward_rounded,
-                    color: AppColors.ink,
-                    size: 20,
+                  const SizedBox(width: 10),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: const BoxDecoration(
+                      color: AppColors.orange,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? Icons.arrow_back_rounded
+                          : Icons.arrow_forward_rounded,
+                      color: Colors.white,
+                      size: 21,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _TimelineTab extends StatelessWidget {
