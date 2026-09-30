@@ -324,6 +324,7 @@ class CapDashboardScreen extends StatelessWidget {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 10),
                 ...today.map(
                   (incident) => Padding(

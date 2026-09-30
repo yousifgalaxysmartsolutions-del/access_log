@@ -6,6 +6,9 @@ import '../../screens/component_showcase/prototype_demo_screen.dart';
 import '../../screens/incidents/incident_details_screen.dart';
 import '../../screens/incidents/incident_list_screen.dart';
 import '../../models/models.dart';
+import '../di/injection.dart';
+import '../config/environment.dart';
+import '../session/session_manager.dart';
 
 abstract final class AppRoutes {
   static const login = '/';
@@ -19,6 +22,21 @@ abstract final class AppRoutes {
   static const incidentList = '/incidents';
   static const incidentDetails = '/incident-details';
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
+    if (services.isRegistered<SessionManager>() &&
+        !services<AppEnvironment>().mockAuthentication &&
+        !services<SessionManager>().isAuthenticated &&
+        ![
+          login,
+          forgotPassword,
+          otp,
+          newPassword,
+          passwordChanged,
+        ].contains(settings.name)) {
+      return MaterialPageRoute(
+        settings: const RouteSettings(name: login),
+        builder: (_) => const LoginScreen(),
+      );
+    }
     final page = switch (settings.name) {
       home => const AppShell(),
       forgotPassword => const ForgotPasswordScreen(),

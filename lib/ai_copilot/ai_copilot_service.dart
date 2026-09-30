@@ -5,6 +5,7 @@ import 'dart:io';
 import 'ai_copilot_models.dart';
 import 'ai_copilot_prompts.dart';
 import 'ai_provider_config.dart';
+import '../features/copilot/data/retrofit_ai_transport.dart';
 
 enum AiServiceErrorType {
   missingApiKey,
@@ -150,7 +151,7 @@ class AiCopilotService implements AiCopilotClient {
     ];
     AiTransportResponse response;
     try {
-      response = await (_transport ??= IoAiHttpTransport())
+      response = await (_transport ??= RetrofitAiTransport())
           .post(
             Uri.parse('${AiProviderConfig.baseUrl}/chat/completions'),
             headers: {

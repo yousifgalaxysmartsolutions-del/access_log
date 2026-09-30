@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'core/di/injection.dart';
+import 'core/session/session_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/routes/app_routes.dart';
 import 'core/theme/app_theme.dart';
@@ -12,6 +15,31 @@ class AccessLogApp extends StatefulWidget {
 }
 
 class AccessLogAppState extends State<AccessLogApp> {
+  final _navigator = GlobalKey<NavigatorState>();
+  StreamSubscription<SessionStatus>? _sessionSubscription;
+  @override
+  void initState() {
+    super.initState();
+    if (services.isRegistered<SessionManager>()) {
+      _sessionSubscription = services<SessionManager>().changes.listen((
+        status,
+      ) {
+        if (status != SessionStatus.authenticated) {
+          _navigator.currentState?.pushNamedAndRemoveUntil(
+            AppRoutes.login,
+            (_) => false,
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _sessionSubscription?.cancel();
+    super.dispose();
+  }
+
   Locale _locale = const Locale('ar');
   ThemeMode _themeMode = ThemeMode.light;
   bool get isDark => _themeMode == ThemeMode.dark;
@@ -23,6 +51,12 @@ class AccessLogAppState extends State<AccessLogApp> {
       setState(() => _themeMode = isDark ? ThemeMode.light : ThemeMode.dark);
   @override
   Widget build(BuildContext context) => MaterialApp(
+    navigatorKey: _navigator,
+    initialRoute:
+        services.isRegistered<SessionManager>() &&
+            services<SessionManager>().isAuthenticated
+        ? AppRoutes.home
+        : AppRoutes.login,
     debugShowCheckedModeBanner: false,
     title: 'Access Log+',
     locale: _locale,

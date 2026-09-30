@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'app.dart';
+import 'core/di/injection.dart';
 
-void main() => runApp(const AccessLogApp());
-
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await configureDependencies();
+  runApp(const AccessLogApp());
+}

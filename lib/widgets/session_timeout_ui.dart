@@ -7,8 +7,14 @@ import '../core/theme/app_tokens.dart';
 import '../mock/mock_data.dart';
 import '../screens/auth/auth_screens.dart';
 import 'app_button.dart';
+import '../core/di/injection.dart';
+import '../core/session/session_manager.dart';
 
 void navigateToSecureLogin(BuildContext context) {
+  if (services.isRegistered<SessionManager>()) {
+    unawaited(services<SessionManager>().logout());
+    return;
+  }
   Navigator.pushAndRemoveUntil(
     context,
     MaterialPageRoute(builder: (_) => const LoginScreen()),

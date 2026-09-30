@@ -13,6 +13,8 @@ import 'ai_copilot_controller.dart';
 import 'ai_copilot_models.dart';
 import 'ai_copilot_prompts.dart';
 import 'ai_copilot_service.dart';
+import '../core/di/injection.dart';
+import '../features/copilot/domain/complete_copilot_use_case.dart';
 
 class AiCopilotScreen extends StatefulWidget {
   const AiCopilotScreen({super.key, required this.incident, this.client});
@@ -27,21 +29,30 @@ class AiCopilotScreen extends StatefulWidget {
 class _AiCopilotScreenState extends State<AiCopilotScreen> {
   late final AiCopilotController controller = AiCopilotController(
     incident: widget.incident,
-    client: widget.client ?? AiCopilotService.fromEnvironment(),
+    client:
+        widget.client ??
+        (services.isRegistered<AiCopilotClient>()
+            ? services<AiCopilotClient>()
+            : AiCopilotService.fromEnvironment()),
+    complete:
+        widget.client == null && services.isRegistered<CompleteCopilotUseCase>()
+        ? services<CompleteCopilotUseCase>()
+        : null,
   );
   final input = TextEditingController();
   final scroll = ScrollController();
   bool listening = false;
+  StreamSubscription<int>? _updates;
 
   @override
   void initState() {
     super.initState();
-    controller.addListener(_updated);
+    _updates = controller.stream.listen((_) => _updated());
   }
 
   @override
   void dispose() {
-    controller.removeListener(_updated);
+    _updates?.cancel();
     controller.dispose();
     input.dispose();
     scroll.dispose();

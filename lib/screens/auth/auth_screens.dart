@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/di/injection.dart';
+import '../../core/config/environment.dart';
+import '../../core/error/failure.dart';
+import '../../features/authentication/presentation/bloc/login_bloc.dart';
 
 import '../../app.dart';
 import '../../core/localization/app_strings.dart';
@@ -194,6 +198,80 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final username = TextEditingController();
+  final password = TextEditingController();
+  LoginBloc? _bloc;
+  StreamSubscription<LoginState>? _subscription;
+  @override
+  void initState() {
+    super.initState();
+    if (services.isRegistered<LoginBloc>()) {
+      _bloc = services<LoginBloc>();
+      _subscription = _bloc!.stream.listen((value) {
+        if (!mounted) return;
+        if (value.status == LoginStatus.success) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            AppRoutes.home,
+            (_) => false,
+          );
+        } else {
+          setState(
+            () => preview = value.status == LoginStatus.loading
+                ? LoginPreviewState.loading
+                : LoginPreviewState.normal,
+          );
+          if (value.status == LoginStatus.failure) {
+            final message = switch (value.failure) {
+              NetworkFailure() => _copy(
+                context,
+                'Cannot connect to the test server. Check your connection or VPN.',
+                'تعذر الاتصال بسيرفر الاختبار. تحقق من الاتصال أو الـVPN.',
+              ),
+              TimeoutFailure() => _copy(
+                context,
+                'The server did not respond in time.',
+                'السيرفر لم يستجب في الوقت المحدد.',
+              ),
+              UnauthorizedFailure() => _copy(
+                context,
+                'Sign-in rejected. Check your username and password.',
+                'تم رفض تسجيل الدخول. تحقق من اسم المستخدم وكلمة المرور.',
+              ),
+              ServiceFailure(code: 'inactive_user') => _copy(
+                context,
+                'Mobile access is inactive. Contact your administrator.',
+                'الدخول من الموبايل غير مفعّل. تواصل مع مسؤول النظام.',
+              ),
+              ServerFailure() => _copy(
+                context,
+                'The server is temporarily unavailable.',
+                'السيرفر غير متاح مؤقتًا.',
+              ),
+              _ => _copy(
+                context,
+                'Sign-in could not be completed. Check your details; the server response may need integration.',
+                'تعذر إكمال الدخول. تحقق من بياناتك؛ قد نحتاج لمطابقة صيغة رد السيرفر.',
+              ),
+            };
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+          }
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    _bloc?.close();
+    username.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
   bool obscure = true;
   bool remember = true;
   late LoginPreviewState preview = widget.initialPreview;
@@ -207,6 +285,33 @@ class _LoginScreenState extends State<LoginScreen> {
   };
 
   Future<void> _login() async {
+    if (_bloc != null) {
+      if (_bloc!.state.status == LoginStatus.loading) return;
+      if (!services<AppEnvironment>().mockAuthentication &&
+          (username.text.trim().isEmpty || password.text.isEmpty)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _copy(
+                context,
+                'Enter your username and password.',
+                'أدخل اسم المستخدم وكلمة المرور.',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+      if (services<AppEnvironment>().mockAuthentication &&
+          ![
+            LoginPreviewState.normal,
+            LoginPreviewState.loading,
+          ].contains(preview)) {
+        return;
+      }
+      _bloc!.add(LoginSubmitted(username.text.trim(), password.text, remember));
+      return;
+    }
     if (preview == LoginPreviewState.loading) {
       await Future<void>.delayed(const Duration(milliseconds: 900));
     }
@@ -248,6 +353,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ],
         TextField(
           textInputAction: TextInputAction.next,
+          controller: username,
           decoration: InputDecoration(
             labelText: _copy(
               context,
@@ -264,6 +370,7 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(height: 14),
         TextField(
           obscureText: obscure,
+          controller: password,
           onSubmitted: (_) => _login(),
           decoration: InputDecoration(
             labelText: _copy(context, 'Password', 'كلمة المرور'),
@@ -323,11 +430,24 @@ class _LoginScreenState extends State<LoginScreen> {
           icon: Icons.fingerprint,
           style: AppButtonStyle.outline,
           expanded: true,
-          onPressed: () => Navigator.pushNamedAndRemoveUntil(
-            context,
-            AppRoutes.home,
-            (_) => false,
-          ),
+          onPressed: () {
+            if (services.isRegistered<AppEnvironment>() &&
+                !services<AppEnvironment>().mockAuthentication) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    _copy(
+                      context,
+                      'Please sign in with your password.',
+                      'يرجى تسجيل الدخول بكلمة المرور.',
+                    ),
+                  ),
+                ),
+              );
+              return;
+            }
+            _login();
+          },
         ),
         const SizedBox(height: 24),
         _PreviewSelector(

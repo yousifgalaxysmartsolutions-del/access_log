@@ -1,23 +1,40 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../core/network/result.dart';
+import '../core/error/failure.dart';
+import '../features/copilot/data/copilot_repository.dart';
+import '../features/copilot/domain/complete_copilot_use_case.dart';
 
 import '../models/models.dart';
 import 'ai_copilot_context_builder.dart';
 import 'ai_copilot_models.dart';
 import 'ai_copilot_service.dart';
 
-class AiCopilotController extends ChangeNotifier {
+class AiCopilotController extends Cubit<int> {
   AiCopilotController({
     required this.incident,
     required this.client,
+    CompleteCopilotUseCase? complete,
     this.contextBuilder = const AiCopilotContextBuilder(),
-  }) : readiness = contextBuilder.readiness(incident),
+  }) : _complete =
+           complete ?? CompleteCopilotUseCase(CopilotRepository(client)),
+       readiness = contextBuilder.readiness(incident),
        messages = [
          const AiChatMessage(
            role: AiChatRole.assistant,
            content:
                'I am ready to help with this incident. Ask what to do next, what evidence is missing, or request troubleshooting guidance.',
          ),
-       ];
+       ],
+       super(0);
+  final CompleteCopilotUseCase _complete;
+  void notifyListeners() {
+    if (!isClosed) emit(state + 1);
+  }
+
+  void dispose() {
+    unawaited(close());
+  }
 
   final CapIncident incident;
   final AiCopilotClient client;
@@ -35,10 +52,26 @@ class AiCopilotController extends ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      final answer = await client.complete(
-        incidentContext: contextBuilder.build(incident),
-        history: messages.where((message) => !message.isError).toList(),
+      final result = await _complete(
+        contextBuilder.build(incident),
+        messages.where((message) => !message.isError).toList(),
       );
+      if (isClosed) return;
+      if (result case FailureResult<String>(:final failure)) {
+        messages.add(
+          AiChatMessage(
+            role: AiChatRole.assistant,
+            content: _friendlyError(
+              failure is ServiceFailure
+                  ? AiServiceErrorType.values.byName(failure.code)
+                  : AiServiceErrorType.network,
+            ),
+            isError: true,
+          ),
+        );
+        return;
+      }
+      final answer = (result as Success<String>).data;
       messages.add(
         AiChatMessage(
           role: AiChatRole.assistant,
