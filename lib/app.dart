@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'core/di/injection.dart';
+import 'core/network/cap/cap_locale_holder.dart';
 import 'core/session/session_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/routes/app_routes.dart';
@@ -49,22 +50,30 @@ class AccessLogAppState extends State<AccessLogApp> {
   void setLocale(Locale locale) => setState(() => _locale = locale);
   void toggleTheme() =>
       setState(() => _themeMode = isDark ? ThemeMode.light : ThemeMode.dark);
+
+  /// Lets the CAP data layer pick `resultmessageen`/`resultmessagear` without
+  /// needing a `BuildContext`.
+  void _syncLocale() => CapLocaleHolder.instance.update(_locale);
+
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    navigatorKey: _navigator,
-    initialRoute:
-        services.isRegistered<SessionManager>() &&
-            services<SessionManager>().isAuthenticated
-        ? AppRoutes.home
-        : AppRoutes.login,
-    debugShowCheckedModeBanner: false,
-    title: 'Access Log+',
-    locale: _locale,
-    supportedLocales: const [Locale('en'), Locale('ar')],
-    localizationsDelegates: GlobalMaterialLocalizations.delegates,
-    theme: AppTheme.light(),
-    darkTheme: AppTheme.dark(),
-    themeMode: _themeMode,
-    onGenerateRoute: AppRoutes.onGenerateRoute,
-  );
+  Widget build(BuildContext context) {
+    _syncLocale();
+    return MaterialApp(
+      navigatorKey: _navigator,
+      initialRoute:
+          services.isRegistered<SessionManager>() &&
+              services<SessionManager>().isAuthenticated
+          ? AppRoutes.home
+          : AppRoutes.login,
+      debugShowCheckedModeBanner: false,
+      title: 'Access Log+',
+      locale: _locale,
+      supportedLocales: const [Locale('en'), Locale('ar')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: _themeMode,
+      onGenerateRoute: AppRoutes.onGenerateRoute,
+    );
+  }
 }

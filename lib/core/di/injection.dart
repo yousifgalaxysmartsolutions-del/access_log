@@ -17,17 +17,36 @@ import '../../features/authentication/data/repositories/auth_repository_impl.dar
 import '../../features/authentication/domain/repositories/auth_repository.dart';
 import '../../features/authentication/domain/usecases/login_use_case.dart';
 import '../../features/authentication/presentation/bloc/login_bloc.dart';
+import '../../features/dashboard/data/api/dashboard_api_service.dart';
+import '../../features/dashboard/data/repositories/dashboard_repository_impl.dart';
+import '../../features/dashboard/data/repositories/demo_dashboard_repository.dart';
+import '../../features/dashboard/domain/repositories/dashboard_repository.dart';
+import '../../features/dashboard/domain/usecases/get_dashboard_stats_use_case.dart';
+import '../../features/dashboard/presentation/bloc/dashboard_bloc.dart';
+import '../../features/incidents/data/api/incident_api_service.dart';
+import '../../features/incidents/data/repositories/demo_incident_repository.dart';
+import '../../features/incidents/data/repositories/incident_repository_impl.dart';
+import '../../features/incidents/domain/repositories/incident_repository.dart';
+import '../../features/incidents/domain/usecases/get_incident_list_use_case.dart';
+import '../network/cap/api_request_context.dart';
+import '../network/cap/cap_device_app_info.dart';
 
 final services = GetIt.instance;
 Future<void> configureDependencies({
   AppEnvironment? environment,
   TokenStorage? storage,
+  SessionUserStorage? userStorage,
 }) async {
   if (services.isRegistered<SessionManager>()) return;
   final config = environment ?? AppEnvironment.fromDefines();
   services.registerSingleton<AppEnvironment>(config);
-  services.registerSingleton<TokenStorage>(storage ?? SecureStorageService());
-  final session = SessionManager(services<TokenStorage>());
+  final tokenStorage = storage ?? SecureStorageService();
+  services.registerSingleton<TokenStorage>(tokenStorage);
+  // The session user must come from the same secure store as the tokens. A
+  // custom `TokenStorage` that cannot store users simply leaves it in memory.
+  final SessionUserStorage? users =
+      userStorage ?? (tokenStorage as SessionUserStorage?);
+  final session = SessionManager(services<TokenStorage>(), users);
   if (!config.mockAuthentication) await session.restore();
   services.registerSingleton<SessionManager>(
     session,
@@ -45,30 +64,31 @@ Future<void> configureDependencies({
     dispose: (d) => d.close(force: true),
   );
   dio.interceptors.add(
-    AuthInterceptor(
-      dio,
-      session,
-      (token) async {
-        if (config.mockAuthentication) {
-          return const SessionTokens('demo-access', 'demo-refresh');
-        }
-        final refreshApi = AuthApiService(refreshDio);
-        final response = (await refreshApi.refresh(RefreshTokenRequest(token))).data;
-        if (response['resultcode'] != 1) {
-          throw const FormatException('Refresh token failed');
-        }
-        final data = response['data'];
-        if (data is! Map<String, dynamic>) {
-          throw const FormatException('Missing CAP refresh data');
-        }
-        final access = data['AccessToken'];
-        final refresh = data['RefreshToken'];
-        if (access is! String || access.isEmpty || refresh is! String || refresh.isEmpty) {
-          throw const FormatException('Invalid CAP refresh tokens');
-        }
-        return SessionTokens(access, refresh);
-      },
-    ),
+    AuthInterceptor(dio, session, (token) async {
+      if (config.mockAuthentication) {
+        return const SessionTokens('demo-access', 'demo-refresh');
+      }
+      final refreshApi = AuthApiService(refreshDio);
+      final response = (await refreshApi.refresh(
+        RefreshTokenRequest(token),
+      )).data;
+      if (response['resultcode'] != 1) {
+        throw const FormatException('Refresh token failed');
+      }
+      final data = response['data'];
+      if (data is! Map<String, dynamic>) {
+        throw const FormatException('Missing CAP refresh data');
+      }
+      final access = data['AccessToken'];
+      final refresh = data['RefreshToken'];
+      if (access is! String ||
+          access.isEmpty ||
+          refresh is! String ||
+          refresh.isEmpty) {
+        throw const FormatException('Invalid CAP refresh tokens');
+      }
+      return SessionTokens(access, refresh);
+    }),
   );
   services.registerSingleton<Dio>(dio, dispose: (d) => d.close(force: true));
   services.registerLazySingleton<AuthApiService>(
@@ -106,5 +126,68 @@ Future<void> configureDependencies({
   );
   services.registerLazySingleton<CompleteCopilotUseCase>(
     () => CompleteCopilotUseCase(services<CopilotRepository>()),
+  );
+  registerDashboardDependencies(session, config);
+}
+
+/// Registers the dashboard and incident reads.
+///
+/// Mock-auth mode swaps in prototype repositories behind the same interfaces, so
+/// the dashboard screen, bloc and tests are identical either way.
+void registerDashboardDependencies(
+  SessionManager session,
+  AppEnvironment config,
+) {
+  if (services.isRegistered<ApiRequestContextProvider>()) return;
+
+  services.registerLazySingleton<CapDeviceAppInfoProvider>(
+    CapDeviceAppInfoProvider.new,
+  );
+  services.registerLazySingleton<ApiRequestContextProvider>(
+    () => ApiRequestContextProvider(
+      users: session.users,
+      deviceInfo: services<CapDeviceAppInfoProvider>(),
+    ),
+  );
+
+  if (config.mockAuthentication) {
+    services.registerLazySingleton<DashboardRepository>(
+      DemoDashboardRepository.new,
+    );
+    services.registerLazySingleton<IncidentRepository>(
+      DemoIncidentRepository.new,
+    );
+  } else {
+    services.registerLazySingleton<DashboardApiService>(
+      () => DashboardApiService(services<Dio>()),
+    );
+    services.registerLazySingleton<IncidentApiService>(
+      () => IncidentApiService(services<Dio>()),
+    );
+    services.registerLazySingleton<DashboardRepository>(
+      () => DashboardRepositoryImpl(
+        services<DashboardApiService>(),
+        services<ApiRequestContextProvider>(),
+      ),
+    );
+    services.registerLazySingleton<IncidentRepository>(
+      () => IncidentRepositoryImpl(
+        services<IncidentApiService>(),
+        services<ApiRequestContextProvider>(),
+      ),
+    );
+  }
+
+  services.registerLazySingleton<GetDashboardStatsUseCase>(
+    () => GetDashboardStatsUseCase(services<DashboardRepository>()),
+  );
+  services.registerLazySingleton<GetIncidentListUseCase>(
+    () => GetIncidentListUseCase(services<IncidentRepository>()),
+  );
+  services.registerFactory<DashboardBloc>(
+    () => DashboardBloc(
+      getDashboardStats: services<GetDashboardStatsUseCase>(),
+      getIncidentList: services<GetIncidentListUseCase>(),
+    ),
   );
 }

@@ -45,6 +45,10 @@ dependencies:
   get_it: ^9.3.0
   flutter_secure_storage: ^11.2.0
   json_annotation: ^4.12.0
+  # CAP requires `AppVersion` on every request and Flutter exposes no platform
+  # API for the installed app version. 10.x is required: 8.x/9.x pin an older
+  # `win32` that conflicts with flutter_secure_storage.
+  package_info_plus: ^10.2.1
 
 dev_dependencies:
   flutter_test:

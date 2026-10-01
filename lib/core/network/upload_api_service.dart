@@ -10,9 +10,11 @@ abstract class UploadApiService {
   factory UploadApiService(Dio dio, {String? baseUrl}) = _UploadApiService;
   @POST('/attachments')
   @MultiPart()
-  Future<ApiResponse> upload(@Part(name: 'file') File file,
+  Future<ApiResponse> upload(
+    @Part(name: 'file') File file,
     @Queries() Map<String, dynamic> query,
     @Header('X-Request-ID') String requestId,
     @CancelRequest() CancelToken? cancelToken,
-    @SendProgress() ProgressCallback? progress);
+    @SendProgress() ProgressCallback? progress,
+  );
 }

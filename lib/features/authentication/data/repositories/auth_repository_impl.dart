@@ -21,13 +21,21 @@ class AuthRepositoryImpl implements AuthRepository {
   }) => apiGuard(() async {
     final response = (await api.login(LoginRequest(username, password))).data;
     final parsed = CapLoginResponse.parse(response, username);
-    await session.signIn(parsed.tokens, remember: remember);
+    // The CAP envelope needs `userid`, so the signed-in user has to survive the
+    // login call instead of being returned and discarded.
+    await session.signIn(
+      parsed.tokens,
+      user: SessionUser(id: parsed.user.id, name: parsed.user.name),
+      remember: remember,
+    );
     return parsed.user;
   });
 
   @override
   Future<SessionTokens> refresh(String refreshToken) async {
-    final response = (await api.refresh(RefreshTokenRequest(refreshToken))).data;
+    final response = (await api.refresh(
+      RefreshTokenRequest(refreshToken),
+    )).data;
     if (response['resultcode'] != 1) {
       throw const ApiException(UnauthorizedFailure());
     }
@@ -37,7 +45,10 @@ class AuthRepositoryImpl implements AuthRepository {
     }
     final access = data['AccessToken'];
     final refresh = data['RefreshToken'];
-    if (access is! String || access.isEmpty || refresh is! String || refresh.isEmpty) {
+    if (access is! String ||
+        access.isEmpty ||
+        refresh is! String ||
+        refresh.isEmpty) {
       throw const FormatException('Invalid CAP refresh tokens');
     }
     return SessionTokens(access, refresh);
