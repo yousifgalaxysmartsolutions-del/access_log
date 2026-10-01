@@ -24,10 +24,17 @@ import '../../features/dashboard/domain/repositories/dashboard_repository.dart';
 import '../../features/dashboard/domain/usecases/get_dashboard_stats_use_case.dart';
 import '../../features/dashboard/presentation/bloc/dashboard_bloc.dart';
 import '../../features/incidents/data/api/incident_api_service.dart';
+import '../../features/incidents/data/repositories/demo_incident_details_repository.dart';
 import '../../features/incidents/data/repositories/demo_incident_repository.dart';
+import '../../features/incidents/data/repositories/incident_details_repository_impl.dart';
 import '../../features/incidents/data/repositories/incident_repository_impl.dart';
+import '../../features/incidents/domain/repositories/incident_details_repository.dart';
 import '../../features/incidents/domain/repositories/incident_repository.dart';
+import '../../features/incidents/domain/usecases/get_incident_details_use_case.dart';
 import '../../features/incidents/domain/usecases/get_incident_list_use_case.dart';
+import '../../features/incidents/domain/usecases/get_incident_requests_use_case.dart';
+import '../../features/incidents/domain/usecases/get_incident_timeline_use_case.dart';
+import '../../features/incidents/presentation/bloc/incident_details_bloc.dart';
 import '../network/cap/api_request_context.dart';
 import '../network/cap/cap_device_app_info.dart';
 
@@ -157,6 +164,9 @@ void registerDashboardDependencies(
     services.registerLazySingleton<IncidentRepository>(
       DemoIncidentRepository.new,
     );
+    services.registerLazySingleton<IncidentDetailsRepository>(
+      DemoIncidentDetailsRepository.new,
+    );
   } else {
     services.registerLazySingleton<DashboardApiService>(
       () => DashboardApiService(services<Dio>()),
@@ -176,7 +186,26 @@ void registerDashboardDependencies(
         services<ApiRequestContextProvider>(),
       ),
     );
+    services.registerLazySingleton<IncidentDetailsRepository>(
+      () => IncidentDetailsRepositoryImpl(
+        services<IncidentApiService>(),
+        services<ApiRequestContextProvider>(),
+      ),
+    );
   }
+
+  // Registered for both branches: the repository is either the CAP-backed
+  // implementation or the prototype one, so the details screen resolves a bloc
+  // in mock builds too.
+  services.registerLazySingleton<GetIncidentDetailsUseCase>(
+    () => GetIncidentDetailsUseCase(services<IncidentDetailsRepository>()),
+  );
+  services.registerLazySingleton<GetIncidentTimelineUseCase>(
+    () => GetIncidentTimelineUseCase(services<IncidentDetailsRepository>()),
+  );
+  services.registerLazySingleton<GetIncidentRequestsUseCase>(
+    () => GetIncidentRequestsUseCase(services<IncidentDetailsRepository>()),
+  );
 
   services.registerLazySingleton<GetDashboardStatsUseCase>(
     () => GetDashboardStatsUseCase(services<DashboardRepository>()),
@@ -188,6 +217,14 @@ void registerDashboardDependencies(
     () => DashboardBloc(
       getDashboardStats: services<GetDashboardStatsUseCase>(),
       getIncidentList: services<GetIncidentListUseCase>(),
+    ),
+  );
+  // Screen-scoped, so each details screen gets its own bloc.
+  services.registerFactory<IncidentDetailsBloc>(
+    () => IncidentDetailsBloc(
+      getIncidentDetails: services<GetIncidentDetailsUseCase>(),
+      getIncidentTimeline: services<GetIncidentTimelineUseCase>(),
+      getIncidentRequests: services<GetIncidentRequestsUseCase>(),
     ),
   );
 }

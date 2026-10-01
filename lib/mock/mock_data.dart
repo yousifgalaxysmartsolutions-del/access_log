@@ -512,10 +512,12 @@ abstract final class MockData {
     DateTime dateTime,
     CapIncidentStatus status,
     String currentUser, {
+    int incidentId = 0,
     bool approval = false,
     String description =
         'Network monitoring generated this incident for field assessment and corrective action.',
   }) => CapIncident(
+    incidentId: incidentId,
     number: number,
     type: type,
     siteName: siteName,

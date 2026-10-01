@@ -45,6 +45,7 @@ class _FakeIncidentRepository implements IncidentRepository {
   @override
   Future<Result<List<CapIncident>>> getIncidentsForDay({
     required DateTime day,
+    DateTime? toDate,
   }) async {
     calls++;
     return Success(const []);

@@ -1,8 +1,10 @@
 import '../../../../core/network/result.dart';
 import '../../../../models/models.dart';
 
-/// Reads incidents for a specific day, which is what the dashboard's
-/// "Currently Active" section shows.
+/// Reads a specific day, or an inclusive range when `toDate` is supplied.
 abstract interface class IncidentRepository {
-  Future<Result<List<CapIncident>>> getIncidentsForDay({required DateTime day});
+  Future<Result<List<CapIncident>>> getIncidentsForDay({
+    required DateTime day,
+    DateTime? toDate,
+  });
 }

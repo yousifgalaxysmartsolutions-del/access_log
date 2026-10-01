@@ -12,6 +12,7 @@ import '../../models/models.dart';
 import '../../widgets/identity_verification_mock.dart';
 import '../map/tower_map_screen.dart';
 import '../reporting/reporting_screen.dart';
+import '../../widgets/skeleton_shimmer.dart';
 
 class CapDashboardScreen extends StatelessWidget {
   const CapDashboardScreen({super.key});
@@ -365,7 +366,7 @@ class _DashboardSkeleton {
             style: AppTypography.title,
           ),
         ),
-        const _SkeletonBox(width: 34, height: 26, radius: 20),
+        const SkeletonBox(width: 34, height: 26, radius: 20),
       ],
     ),
     const SizedBox(height: 10),
@@ -375,73 +376,6 @@ class _DashboardSkeleton {
     const SizedBox(height: 10),
     const _IncidentTileSkeleton(),
   ];
-}
-
-/// Sweeping highlight shared by every placeholder block.
-class _Shimmer extends StatefulWidget {
-  const _Shimmer({required this.child});
-
-  final Widget child;
-
-  @override
-  State<_Shimmer> createState() => _ShimmerState();
-}
-
-class _ShimmerState extends State<_Shimmer>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _controller,
-    builder: (context, child) => ShaderMask(
-      blendMode: BlendMode.srcATop,
-      shaderCallback: (bounds) {
-        final sweep = _controller.value * 2 - 1;
-        return LinearGradient(
-          begin: Alignment(-1 + sweep, -1 + sweep),
-          end: Alignment(1 + sweep, 1 + sweep),
-          colors: const [
-            Color(0xFFECECEC),
-            Color(0xFFF8F8F8),
-            Color(0xFFECECEC),
-          ],
-          stops: const [0, 0.5, 1],
-        ).createShader(bounds);
-      },
-      child: child,
-    ),
-    child: widget.child,
-  );
-}
-
-class _SkeletonBox extends StatelessWidget {
-  const _SkeletonBox({this.width, this.height = 12, this.radius = 6});
-
-  final double? width;
-  final double height;
-  final double radius;
-
-  @override
-  Widget build(BuildContext context) => _Shimmer(
-    child: Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: const Color(0xFFECECEC),
-        borderRadius: BorderRadius.circular(radius),
-      ),
-    ),
-  );
 }
 
 class _MonthlyCardSkeleton extends StatelessWidget {
@@ -457,13 +391,13 @@ class _MonthlyCardSkeleton extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: const [
-        _SkeletonBox(width: 120, height: 10, radius: 5),
+        SkeletonBox(width: 120, height: 10, radius: 5),
         SizedBox(height: 16),
-        _SkeletonBox(width: 90, height: 30, radius: 8),
+        SkeletonBox(width: 90, height: 30, radius: 8),
         SizedBox(height: 14),
-        _SkeletonBox(height: 8, radius: 4),
+        SkeletonBox(height: 8, radius: 4),
         SizedBox(height: 8),
-        _SkeletonBox(width: 160, height: 8, radius: 4),
+        SkeletonBox(width: 160, height: 8, radius: 4),
       ],
     ),
   );
@@ -493,11 +427,11 @@ class _MetricGridSkeleton extends StatelessWidget {
               child: const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _SkeletonBox(width: 26, height: 26, radius: 13),
+                  SkeletonBox(width: 26, height: 26, radius: 13),
                   SizedBox(height: 14),
-                  _SkeletonBox(width: 64, height: 22, radius: 6),
+                  SkeletonBox(width: 64, height: 22, radius: 6),
                   SizedBox(height: 10),
-                  _SkeletonBox(height: 9, radius: 4),
+                  SkeletonBox(height: 9, radius: 4),
                 ],
               ),
             ),
@@ -522,7 +456,7 @@ class _StatusOverviewSkeleton extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: const [
-        _SkeletonBox(width: 140, height: 16, radius: 6),
+        SkeletonBox(width: 140, height: 16, radius: 6),
         SizedBox(height: 18),
         _SkeletonRowSkeleton(),
         SizedBox(height: 14),
@@ -542,11 +476,11 @@ class _SkeletonRowSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const Row(
     children: [
-      _SkeletonBox(width: 10, height: 10, radius: 5),
+      SkeletonBox(width: 10, height: 10, radius: 5),
       SizedBox(width: 12),
-      Expanded(child: _SkeletonBox(height: 11)),
+      Expanded(child: SkeletonBox(height: 11)),
       SizedBox(width: 12),
-      _SkeletonBox(width: 26, height: 11),
+      SkeletonBox(width: 26, height: 11),
     ],
   );
 }
@@ -567,17 +501,17 @@ class _IncidentTileSkeleton extends StatelessWidget {
       children: [
         Row(
           children: [
-            _SkeletonBox(width: 54, height: 10, radius: 5),
+            SkeletonBox(width: 54, height: 10, radius: 5),
             Spacer(),
-            _SkeletonBox(width: 58, height: 22, radius: 20),
+            SkeletonBox(width: 58, height: 22, radius: 20),
           ],
         ),
         SizedBox(height: 9),
-        _SkeletonBox(width: 200, height: 15),
+        SkeletonBox(width: 200, height: 15),
         SizedBox(height: 10),
-        _SkeletonBox(width: 140, height: 11),
+        SkeletonBox(width: 140, height: 11),
         SizedBox(height: 12),
-        _SkeletonBox(width: 110, height: 11),
+        SkeletonBox(width: 110, height: 11),
       ],
     ),
   );

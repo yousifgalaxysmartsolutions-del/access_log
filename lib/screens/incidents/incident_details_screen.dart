@@ -1,20 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/error/failure.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/localization/mock_content_localization.dart';
 import '../../core/theme/app_tokens.dart';
-import '../../mock/mock_data.dart';
+import '../../features/incidents/data/models/incident_details_models.dart';
+import '../../features/incidents/presentation/bloc/incident_details_bloc.dart';
+import '../../features/incidents/presentation/incident_details_bloc_scope.dart';
 import '../../models/models.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/background_simulation_components.dart';
 import '../../widgets/cap_incident_card.dart';
 import '../../widgets/info_row.dart';
 import '../../widgets/section_card.dart';
+import '../../widgets/skeleton_shimmer.dart';
 import 'incident_action_flows.dart';
 import 'active_intervention_screen.dart';
 import 'new_request_flows.dart';
-import '../requests/my_requests_screen.dart';
+
+/// Tab indexes. General and Related Requests read real API data; Timeline is
+/// still mock-backed because its payload is unknown.
+const int _generalTabIndex = 0;
+const int _timelineTabIndex = 1;
+const int _relatedRequestsTabIndex = 2;
 
 class IncidentDetailsScreen extends StatefulWidget {
   const IncidentDetailsScreen({super.key, required this.incident});
@@ -25,22 +35,97 @@ class IncidentDetailsScreen extends StatefulWidget {
 
 class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
     with SingleTickerProviderStateMixin {
+  /// One bloc for this screen's lifetime.
+  ///
+  /// Created here rather than in `build` because most call sites push this screen
+  /// directly instead of through `AppRoutes`, and `initState` needs it for the
+  /// first load.
+  late final IncidentDetailsBloc detailsBloc;
   late CapIncidentStatus status = widget.incident.status;
   CapIncidentStatus heldFromStatus = CapIncidentStatus.inProcess;
   late final TabController tabController;
-  late final List<RelatedRequest> relatedRequests;
+
+  /// The tab index the selection last came to rest at.
+  ///
+  /// `TabController` publishes `index` before `TabBar.onTap` runs, so the
+  /// controller value cannot distinguish a re-tap from a real move. This field
+  /// is only updated once a movement has settled, which makes it the single
+  /// source of truth for "the tab the user is currently looking at".
+  int _settledIndex = _generalTabIndex;
 
   @override
   void initState() {
     super.initState();
-    tabController = TabController(length: 3, vsync: this);
-    relatedRequests = List<RelatedRequest>.of(MockData.relatedRequests);
+    detailsBloc = IncidentDetailsBlocScope.resolve();
+    tabController = TabController(length: 3, vsync: this)
+      ..addListener(_onTabChanged);
+    // Dispatched from a post-frame callback rather than `build` so the first
+    // load happens exactly once and never during layout. The screen owns no
+    // other async state for General; everything else comes from the bloc.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadGeneral());
   }
 
   @override
   void dispose() {
+    tabController.removeListener(_onTabChanged);
     tabController.dispose();
+    detailsBloc.close();
     super.dispose();
+  }
+
+  /// Requests General data for the selected tab.
+  ///
+  /// The real CAP `incidentId` travels on `CapIncident`; [CapIncident.number] is
+  /// only the display number.
+  void _loadGeneral() {
+    if (!mounted) return;
+    detailsBloc.add(
+      LoadIncidentGeneral(
+        incidentId: widget.incident.incidentId,
+        incidentNo: widget.incident.number,
+      ),
+    );
+  }
+
+  /// Requests Related Requests data for the selected tab.
+  ///
+  /// Uses the same real [CapIncident.incidentId] source as General: never a
+  /// literal, a list index, or something derived from the incident number.
+  void _loadRelatedRequests() {
+    if (!mounted) return;
+    detailsBloc.add(
+      LoadIncidentRelatedRequests(incidentId: widget.incident.incidentId),
+    );
+  }
+
+  /// Requests Timeline data for the selected tab.
+  ///
+  /// Uses the same real [CapIncident.incidentId] source as General and Related
+  /// Requests: never a literal, a list index, or something derived from the
+  /// incident number.
+  void _loadTimeline() {
+    if (!mounted) return;
+    detailsBloc.add(
+      LoadIncidentTimeline(incidentId: widget.incident.incidentId),
+    );
+  }
+
+  /// Loads the panel a settled tab selection belongs to.
+  void _loadPanelFor(int tabIndex) => switch (tabIndex) {
+    _generalTabIndex => _loadGeneral(),
+    _timelineTabIndex => _loadTimeline(),
+    _relatedRequestsTabIndex => _loadRelatedRequests(),
+    _ => null,
+  };
+
+  /// Fires on real index changes: tab taps that move the selection and swipes.
+  void _onTabChanged() {
+    if (tabController.indexIsChanging) return;
+    // Animation between tabs reports the destination index before the old tab
+    // has settled, so only react once the movement finished.
+    if (tabController.animation?.isAnimating ?? false) return;
+    _settledIndex = tabController.index;
+    _loadPanelFor(tabController.index);
   }
 
   void _updateStatus(CapIncidentStatus next, String message) {
@@ -58,6 +143,13 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
     );
   }
 
+  /// Prototype entry point for the bottom action area.
+  ///
+  /// The create-request API is not connected yet, so the wizard still runs but
+  /// its result is deliberately discarded: injecting a locally built request into
+  /// the tab would present prototype data as if `GetIncidentRequests` had
+  /// returned it. The write sprint will create the request on the backend and
+  /// then refresh the tab.
   Future<void> _newRequest(RelatedRequestType type) async {
     final request = await Navigator.push<RelatedRequest>(
       context,
@@ -66,53 +158,19 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
       ),
     );
     if (request != null && mounted) {
-      setState(() => relatedRequests.insert(0, request));
-      tabController.animateTo(2);
+      tabController.animateTo(_relatedRequestsTabIndex);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             context.tr(
-              'Request added to Related Requests',
-              'تمت إضافة الطلب إلى الطلبات المرتبطة',
+              'Creating requests is not connected yet',
+              'إنشاء الطلبات غير متصل بالخدمة بعد',
             ),
           ),
           behavior: SnackBarBehavior.floating,
         ),
       );
     }
-  }
-
-  void _decideRelatedRequest(RelatedRequest request, bool approved) {
-    final index = relatedRequests.indexWhere(
-      (item) => item.number == request.number,
-    );
-    if (index < 0) return;
-    setState(() {
-      relatedRequests[index] = request.copyWith(
-        status: approved ? 'Approved' : 'Rejected',
-      );
-      status = statusAfterRequestDecision(
-        current: status,
-        requestType: request.type,
-        approved: approved,
-      );
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          approved
-              ? context.tr(
-                  'Request approved • Workflow status updated',
-                  'تمت الموافقة على الطلب • تم تحديث حالة الفلو',
-                )
-              : context.tr(
-                  'Request rejected • Incident status unchanged',
-                  'تم رفض الطلب • حالة البلاغ لم تتغير',
-                ),
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   Future<void> _cancelIncident() async {
@@ -157,7 +215,12 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => BlocProvider<IncidentDetailsBloc>.value(
+    value: detailsBloc,
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(context.tr('Incident Details', 'تفاصيل البلاغ')),
       actions: [
@@ -257,6 +320,19 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
               color: Theme.of(context).cardColor,
               child: TabBar(
                 controller: tabController,
+                onTap: (index) {
+                  // Tapping the tab that is already selected produces no index
+                  // change, so the listener above never runs for it. Handling it
+                  // here keeps one user action to exactly one API call.
+                  //
+                  // `TabController.index` cannot be used to tell a re-tap from a
+                  // real move: the controller flips `index` before `onTap` runs, so
+                  // by the time this callback fires a genuine move already reports
+                  // the destination index. [_settledIndex] holds the index the
+                  // selection last came to rest at, so `index == _settledIndex`
+                  // means the tap did not move anything and is a true re-tap.
+                  if (index == _settledIndex) _loadPanelFor(index);
+                },
                 isScrollable: true,
                 tabAlignment: TabAlignment.start,
                 labelColor: AppColors.orangeDark,
@@ -273,15 +349,47 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
               child: TabBarView(
                 controller: tabController,
                 children: [
-                  _GeneralTab(incident: widget.incident, status: status),
-                  const _TimelineTab(),
-                  _RequestsTab(
-                    requests: relatedRequests,
-                    incident: widget.incident,
-                    onApprove: (request) =>
-                        _decideRelatedRequest(request, true),
-                    onReject: (request) =>
-                        _decideRelatedRequest(request, false),
+                  // Each panel rebuilds only on its own slice of the state, so
+                  // loading or failing one never disturbs the others.
+                  BlocBuilder<IncidentDetailsBloc, IncidentDetailsState>(
+                    buildWhen: (previous, current) =>
+                        previous.generalLoading != current.generalLoading ||
+                        previous.generalData != current.generalData ||
+                        previous.generalFailure != current.generalFailure,
+                    builder: (context, state) => _GeneralTab(
+                      data: state.generalData,
+                      loading: state.generalLoading,
+                      failure: state.generalFailure,
+                      onRetry: _loadGeneral,
+                      status: status,
+                    ),
+                  ),
+                  BlocBuilder<IncidentDetailsBloc, IncidentDetailsState>(
+                    buildWhen: (previous, current) =>
+                        previous.timelineLoading != current.timelineLoading ||
+                        previous.timelineData != current.timelineData ||
+                        previous.timelineFailure != current.timelineFailure,
+                    builder: (context, state) => _TimelineTab(
+                      data: state.timelineData,
+                      loading: state.timelineLoading,
+                      failure: state.timelineFailure,
+                      onRetry: _loadTimeline,
+                    ),
+                  ),
+                  BlocBuilder<IncidentDetailsBloc, IncidentDetailsState>(
+                    buildWhen: (previous, current) =>
+                        previous.relatedRequestsLoading !=
+                            current.relatedRequestsLoading ||
+                        previous.relatedRequestsData !=
+                            current.relatedRequestsData ||
+                        previous.relatedRequestsFailure !=
+                            current.relatedRequestsFailure,
+                    builder: (context, state) => _RequestsTab(
+                      data: state.relatedRequestsData,
+                      loading: state.relatedRequestsLoading,
+                      failure: state.relatedRequestsFailure,
+                      onRetry: _loadRelatedRequests,
+                    ),
                   ),
                 ],
               ),
@@ -409,16 +517,33 @@ class _HeaderChip extends StatelessWidget {
   );
 }
 
+/// The General panel, driven entirely by `IncidentDetailsBloc.general*`.
+///
+/// [data] is the real `GetIncidentDetails` payload and stays the source of
+/// truth for every field here; nothing is mapped back into `CapIncident`.
 class _GeneralTab extends StatelessWidget {
-  const _GeneralTab({required this.incident, required this.status});
-  final CapIncident incident;
+  const _GeneralTab({
+    required this.data,
+    required this.loading,
+    required this.failure,
+    required this.onRetry,
+    required this.status,
+  });
+
+  final IncidentDetailsData? data;
+  final bool loading;
+  final Failure? failure;
+  final VoidCallback onRetry;
+
+  /// Still the prototype action workflow's status; header and actions keep
+  /// using it until the action APIs land.
   final CapIncidentStatus status;
 
+  /// Directions come from the API location, never from `MockData.towerSites`.
   Future<void> _openDirections(BuildContext context) async {
-    final tower = MockData.towerSites
-        .where((site) => site.code == incident.siteCode)
-        .firstOrNull;
-    if (tower == null) {
+    final latitude = data?.location?.latitude;
+    final longitude = data?.location?.longitude;
+    if (latitude == null || longitude == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -432,7 +557,7 @@ class _GeneralTab extends StatelessWidget {
       return;
     }
 
-    final destination = '${tower.latitude},${tower.longitude}';
+    final destination = '$latitude,$longitude';
     final directionsUri = Uri.https('www.google.com', '/maps/dir/', {
       'api': '1',
       'destination': destination,
@@ -457,118 +582,287 @@ class _GeneralTab extends StatelessWidget {
   }
 
   @override
+  Widget build(BuildContext context) {
+    // First load: placeholder only inside this tab, so the AppBar, header, tab
+    // bar and action area stay visible. It also covers the single idle frame
+    // before the initial dispatch reaches the bloc.
+    final details = data;
+    if (details == null) {
+      if (failure != null) {
+        return _GeneralTabError(message: failure!.message, onRetry: onRetry);
+      }
+      return const _GeneralTabSkeleton();
+    }
+
+    final location = details.location;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+      children: [
+        // Refresh and post-refresh failure indicators are non-blocking: the last
+        // successful payload stays on screen.
+        if (loading || failure != null)
+          _TabNotice(
+            loading: loading,
+            message: failure?.message,
+            onRetry: onRetry,
+          ),
+        if (loading || failure != null) const SizedBox(height: 13),
+        SectionCard(
+          title: context.tr('Core information', 'المعلومات الأساسية'),
+          icon: Icons.assignment_outlined,
+          child: Column(
+            children: [
+              InfoRow(
+                icon: Icons.tag,
+                label: context.tr('Incident Number', 'رقم البلاغ'),
+                value: _orDash(details.incidentNo),
+              ),
+              InfoRow(
+                icon: Icons.category_outlined,
+                label: context.tr('Incident Type', 'نوع البلاغ'),
+                value: _orDash(details.incidentType?.name),
+              ),
+              InfoRow(
+                icon: Icons.title,
+                label: context.tr('Title', 'العنوان'),
+                value: _orDash(details.title),
+              ),
+              InfoRow(
+                icon: Icons.sync_alt,
+                label: context.tr('Current Status', 'الحالة الحالية'),
+                value: _orDash(details.status?.name),
+              ),
+              InfoRow(
+                icon: Icons.person_outline,
+                label: context.tr('Current User', 'المستخدم الحالي'),
+                value: _orDash(details.assignedEngineer?.name),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        SectionCard(
+          title: context.tr('Site & location', 'بيانات الموقع'),
+          icon: Icons.cell_tower,
+          child: Column(
+            children: [
+              InfoRow(
+                icon: Icons.business_outlined,
+                label: context.tr('Site Name', 'اسم الموقع'),
+                value: _orDash(location?.name),
+              ),
+              InfoRow(
+                icon: Icons.qr_code,
+                label: context.tr('Site Code', 'كود الموقع'),
+                value: _orDash(location?.id),
+              ),
+              InfoRow(
+                icon: Icons.public,
+                label: context.tr('Region', 'الإقليم'),
+                value: _orDash(location?.region?.name),
+              ),
+              InfoRow(
+                icon: Icons.map_outlined,
+                label: context.tr('Area', 'المنطقة'),
+                value: _orDash(location?.area?.name),
+              ),
+              const SizedBox(height: 10),
+              //   MiniLocationCard(site: ...),
+              const SizedBox(height: 12),
+              _ModernDirectionsButton(
+                siteName: _orDash(location?.name),
+                onPressed: () => _openDirections(context),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        SectionCard(
+          title: context.tr('Technical details', 'التفاصيل الفنية'),
+          icon: Icons.memory_outlined,
+          child: Column(
+            children: [
+              InfoRow(
+                icon: Icons.inventory_2_outlined,
+                label: context.tr('Product Name', 'اسم المنتج'),
+                value: _orDash(details.productName),
+              ),
+              InfoRow(
+                icon: Icons.account_tree_outlined,
+                label: context.tr('Native MO Name', 'اسم MO الأصلي'),
+                value: _orDash(details.nativeMoName),
+              ),
+              InfoRow(
+                icon: Icons.notifications_active_outlined,
+                label: context.tr('Notification Type', 'نوع الإشعار'),
+                value: _orDash(details.notificationType?.name),
+              ),
+              InfoRow(
+                icon: Icons.event_outlined,
+                label: context.tr('Created Date', 'تاريخ الإنشاء'),
+                value: _apiDate(details.createdDate),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 13),
+        SectionCard(
+          title: context.tr('Description', 'الوصف'),
+          icon: Icons.notes,
+          child: Text(
+            _orDash(details.description),
+            style: AppTypography.body.copyWith(color: AppColors.muted),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Placeholder shown inside the General tab on its first load.
+class _GeneralTabSkeleton extends StatelessWidget {
+  const _GeneralTabSkeleton();
+
+  @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-    children: [
-      SectionCard(
-        title: context.tr('Core information', 'المعلومات الأساسية'),
-        icon: Icons.assignment_outlined,
-        child: Column(
-          children: [
-            InfoRow(
-              icon: Icons.tag,
-              label: context.tr('Incident Number', 'رقم البلاغ'),
-              value: incident.number,
-            ),
-            InfoRow(
-              icon: Icons.category_outlined,
-              label: context.tr('Incident Type', 'نوع البلاغ'),
-              value: context.mockText(incident.type),
-            ),
-            InfoRow(
-              icon: Icons.title,
-              label: context.tr('Title', 'العنوان'),
-              value: context.mockText(incident.title),
-            ),
-            InfoRow(
-              icon: Icons.sync_alt,
-              label: context.tr('Current Status', 'الحالة الحالية'),
-              value: _statusLabel(context, status),
-            ),
-            InfoRow(
-              icon: Icons.person_outline,
-              label: context.tr('Current User', 'المستخدم الحالي'),
-              value: context.mockText(incident.currentUser),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 13),
-      SectionCard(
-        title: context.tr('Site & location', 'بيانات الموقع'),
-        icon: Icons.cell_tower,
-        child: Column(
-          children: [
-            InfoRow(
-              icon: Icons.business_outlined,
-              label: context.tr('Site Name', 'اسم الموقع'),
-              value: context.mockText(incident.siteName),
-            ),
-            InfoRow(
-              icon: Icons.qr_code,
-              label: context.tr('Site Code', 'كود الموقع'),
-              value: incident.siteCode,
-            ),
-            InfoRow(
-              icon: Icons.public,
-              label: context.tr('Region', 'الإقليم'),
-              value: context.mockText(incident.region),
-            ),
-            InfoRow(
-              icon: Icons.map_outlined,
-              label: context.tr('Area', 'المنطقة'),
-              value: context.mockText(incident.area),
-            ),
-            const SizedBox(height: 10),
-            //   MiniLocationCard(site: context.mockText(incident.siteName)),
-            const SizedBox(height: 12),
-            _ModernDirectionsButton(
-              siteName: context.mockText(incident.siteName),
-              onPressed: () => _openDirections(context),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 13),
-      SectionCard(
-        title: context.tr('Technical details', 'التفاصيل الفنية'),
-        icon: Icons.memory_outlined,
-        child: Column(
-          children: [
-            InfoRow(
-              icon: Icons.inventory_2_outlined,
-              label: context.tr('Product Name', 'اسم المنتج'),
-              value: context.mockText(incident.productName),
-            ),
-            InfoRow(
-              icon: Icons.account_tree_outlined,
-              label: context.tr('Native MO Name', 'اسم MO الأصلي'),
-              value: incident.nativeMoName,
-            ),
-            InfoRow(
-              icon: Icons.notifications_active_outlined,
-              label: context.tr('Notification Type', 'نوع الإشعار'),
-              value: context.mockText(incident.notificationType),
-            ),
-            InfoRow(
-              icon: Icons.event_outlined,
-              label: context.tr('Created Date', 'تاريخ الإنشاء'),
-              value: _dateTime(incident.dateTime),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 13),
-      SectionCard(
-        title: context.tr('Description', 'الوصف'),
-        icon: Icons.notes,
-        child: Text(
-          context.mockText(incident.description),
-          style: AppTypography.body.copyWith(color: AppColors.muted),
-        ),
-      ),
+    children: const [
+      _GeneralSkeletonCard(rows: 5),
+      SizedBox(height: 13),
+      _GeneralSkeletonCard(rows: 4, trailing: true),
+      SizedBox(height: 13),
+      _GeneralSkeletonCard(rows: 4),
+      SizedBox(height: 13),
+      _GeneralSkeletonCard(rows: 3),
     ],
   );
+}
+
+class _GeneralSkeletonCard extends StatelessWidget {
+  const _GeneralSkeletonCard({required this.rows, this.trailing = false});
+
+  final int rows;
+
+  /// Reserves the space the directions button occupies in the loaded layout so
+  /// the transition does not shift the card.
+  final bool trailing;
+
+  @override
+  Widget build(BuildContext context) => SectionCard(
+    title: '',
+    icon: Icons.circle_outlined,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SkeletonBox(width: 120, height: 12, radius: 6),
+        const SizedBox(height: 18),
+        for (var i = 0; i < rows; i++) ...[
+          const SkeletonBox(height: 10, radius: 5),
+          const SizedBox(height: 14),
+        ],
+        if (trailing) const SkeletonBox(width: 150, height: 40, radius: 20),
+      ],
+    ),
+  );
+}
+
+/// Full-tab error state, used when a load failed with no data to fall back on.
+class _GeneralTabError extends StatelessWidget {
+  const _GeneralTabError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    // Scrollable so a long backend message cannot overflow a short tab.
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, color: AppColors.error, size: 40),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTypography.body.copyWith(color: AppColors.muted),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: Text(context.tr('Retry', 'إعادة المحاولة')),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Slim, non-blocking strip for refreshing and for failures that still have
+/// data on screen.
+class _TabNotice extends StatelessWidget {
+  const _TabNotice({
+    required this.loading,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final bool loading;
+  final String? message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final failed = message != null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: (failed ? AppColors.error : AppColors.orange).withValues(
+          alpha: .09,
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          if (loading && !failed)
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            Icon(
+              failed ? Icons.error_outline : Icons.refresh,
+              size: 16,
+              color: failed ? AppColors.error : AppColors.orange,
+            ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              failed ? message! : context.tr('Refreshing…', 'جارٍ التحديث…'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.body.copyWith(
+                fontSize: 12,
+                color: failed ? AppColors.error : AppColors.muted,
+              ),
+            ),
+          ),
+          if (failed)
+            TextButton(
+              onPressed: onRetry,
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                foregroundColor: AppColors.error,
+              ),
+              child: Text(context.tr('Retry', 'إعادة المحاولة')),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ModernDirectionsButton extends StatelessWidget {
@@ -721,45 +1015,100 @@ class _ModernDirectionsButton extends StatelessWidget {
   }
 }
 
+/// Timeline panel, driven by `GetIncidentTimeline` through the bloc.
+///
+/// Renders the API payload directly: every returned event is a historical entry
+/// that already happened, so all of them draw as completed. There is no
+/// `completed` flag on the contract and none is invented - `actionType` and
+/// `eventType` describe what the event was, not how far a workflow has
+/// progressed, so deriving completion from them would be a guess.
 class _TimelineTab extends StatelessWidget {
-  const _TimelineTab();
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 20, 18, 30),
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              context.tr('Incident lifecycle', 'دورة حياة البلاغ'),
-              style: AppTypography.title,
-            ),
-          ),
-          Text(
-            '${MockData.incidentTimeline.where((event) => event.completed).length} of ${MockData.incidentTimeline.length}',
-            style: AppTypography.meta.copyWith(color: AppColors.muted),
-          ),
-        ],
-      ),
-      const SizedBox(height: 20),
-      ...List.generate(
-        MockData.incidentTimeline.length,
-        (index) => _HistoryItem(
-          event: MockData.incidentTimeline[index],
-          last: index == MockData.incidentTimeline.length - 1,
-        ),
-      ),
-    ],
-  );
-}
+  const _TimelineTab({
+    required this.data,
+    required this.loading,
+    required this.failure,
+    required this.onRetry,
+  });
 
-class _HistoryItem extends StatelessWidget {
-  const _HistoryItem({required this.event, required this.last});
-  final IncidentHistoryEvent event;
-  final bool last;
+  final IncidentTimelineData? data;
+  final bool loading;
+  final Failure? failure;
+  final VoidCallback onRetry;
+
   @override
   Widget build(BuildContext context) {
-    final color = event.completed ? AppColors.orange : AppColors.border;
+    // No payload yet: an initial failure outranks the skeleton so Retry is
+    // reachable, otherwise the panel waits in its first-load state.
+    if (data == null) {
+      if (failure != null) {
+        return _TimelineTabError(message: failure!.message, onRetry: onRetry);
+      }
+      return const _TimelineTabSkeleton();
+    }
+
+    // A payload exists, so refresh and refresh-failure both keep the events
+    // already on screen and only add a non-blocking strip above them.
+    final events = data!.events ?? const <IncidentTimelineEventDto>[];
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 30),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                context.tr('Incident lifecycle', 'دورة حياة البلاغ'),
+                style: AppTypography.title,
+              ),
+            ),
+            Text(
+              '${events.length} of ${events.length}',
+              style: AppTypography.meta.copyWith(color: AppColors.muted),
+            ),
+          ],
+        ),
+        _TabNotice(
+          loading: loading,
+          message: failure?.message,
+          onRetry: onRetry,
+        ),
+        if (events.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 28),
+            child: _TimelineEmptyState(),
+          )
+        else ...[
+          const SizedBox(height: 20),
+          // Backend order is preserved as received; the panel does not re-sort.
+          ...List.generate(
+            events.length,
+            (index) => _HistoryItem(
+              event: events[index],
+              last: index == events.length - 1,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// One timeline entry.
+///
+/// The visual design is unchanged from the prototype: rail, marker, card, title
+/// with date, user row, remarks. Only the data source changed - it now reads
+/// [IncidentTimelineEventDto] instead of the prototype `IncidentHistoryEvent`.
+///
+/// Every entry draws as completed because the API only returns events that have
+/// already happened.
+class _HistoryItem extends StatelessWidget {
+  const _HistoryItem({required this.event, required this.last});
+
+  final IncidentTimelineEventDto event;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) {
+    const color = AppColors.orange;
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -772,17 +1121,11 @@ class _HistoryItem extends StatelessWidget {
                   width: 32,
                   height: 32,
                   decoration: BoxDecoration(
-                    color: event.completed
-                        ? AppColors.orange
-                        : Theme.of(context).cardColor,
+                    color: color,
                     shape: BoxShape.circle,
                     border: Border.all(color: color, width: 2),
                   ),
-                  child: Icon(
-                    event.completed ? Icons.check : Icons.more_horiz,
-                    size: 17,
-                    color: event.completed ? Colors.white : AppColors.muted,
-                  ),
+                  child: const Icon(Icons.check, size: 17, color: Colors.white),
                 ),
                 if (!last) Expanded(child: Container(width: 2, color: color)),
               ],
@@ -802,12 +1145,12 @@ class _HistoryItem extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              _eventAction(context, event.action),
+                              _eventTitle(event),
                               style: AppTypography.section,
                             ),
                           ),
                           Text(
-                            _dateTime(event.dateTime),
+                            _apiDate(event.dateTime),
                             style: AppTypography.meta.copyWith(
                               color: AppColors.muted,
                             ),
@@ -825,7 +1168,7 @@ class _HistoryItem extends StatelessWidget {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              event.user,
+                              _orDash(event.performedBy?.name),
                               style: AppTypography.meta.copyWith(
                                 color: AppColors.muted,
                               ),
@@ -835,11 +1178,20 @@ class _HistoryItem extends StatelessWidget {
                       ),
                       const SizedBox(height: 9),
                       Text(
-                        _eventRemarks(context, event.action, event.remarks),
+                        _orDash(event.eventDescription),
                         style: AppTypography.body.copyWith(
                           color: AppColors.muted,
                         ),
                       ),
+                      if (_eventTransition(event) != null) ...[
+                        const SizedBox(height: 9),
+                        Text(
+                          _eventTransition(event)!,
+                          style: AppTypography.meta.copyWith(
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -852,21 +1204,248 @@ class _HistoryItem extends StatelessWidget {
   }
 }
 
+/// Title shown on the card.
+///
+/// Prefers the API's own `eventTitle` and falls back through `actionType.name`
+/// and `eventType` before giving up. API text is rendered as sent - it is never
+/// run through the prototype localization helpers, which only know the old
+/// hardcoded action vocabulary.
+String _eventTitle(IncidentTimelineEventDto event) {
+  final candidates = [
+    event.eventTitle?.trim(),
+    event.actionType?.name?.trim(),
+    event.eventType?.trim(),
+  ];
+  for (final candidate in candidates) {
+    if (candidate != null && candidate.isNotEmpty) return candidate;
+  }
+  return '-';
+}
 
-class _RequestsTab extends StatelessWidget {
-  const _RequestsTab({
-    required this.requests,
-    required this.incident,
-    required this.onApprove,
-    required this.onReject,
-  });
-  final List<RelatedRequest> requests;
-  final CapIncident incident;
-  final ValueChanged<RelatedRequest> onApprove;
-  final ValueChanged<RelatedRequest> onReject;
+/// `oldValue` to `newValue` when the backend sent both, as supplementary text.
+///
+/// Optional: an event without a transition simply omits the line rather than
+/// rendering an empty or placeholder row.
+String? _eventTransition(IncidentTimelineEventDto event) {
+  final from = event.oldValue?.name?.trim();
+  final to = event.newValue?.name?.trim();
+  final hasFrom = from != null && from.isNotEmpty;
+  final hasTo = to != null && to.isNotEmpty;
+  if (!hasFrom && !hasTo) return null;
+  return '${hasFrom ? from : '-'} \u2192 ${hasTo ? to : '-'}';
+}
+
+/// Shown when the API succeeds but the incident has no history yet.
+///
+/// This is a success, not an error, so it carries no retry affordance.
+class _TimelineEmptyState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        children: [
+          const Icon(Icons.timeline_outlined, size: 40, color: AppColors.muted),
+          const SizedBox(height: 12),
+          Text(
+            context.tr('No timeline events', 'لا توجد أحداث في الخط الزمني'),
+            style: AppTypography.body.copyWith(color: AppColors.muted),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Skeleton shaped like the timeline it stands in for: a title row, then a
+/// vertical rail with a marker dot and a card per entry.
+class _TimelineTabSkeleton extends StatelessWidget {
+  const _TimelineTabSkeleton();
+
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
+    padding: const EdgeInsets.fromLTRB(18, 20, 18, 30),
+    children: [
+      Row(
+        children: const [
+          Expanded(child: SkeletonBox(height: 14, radius: 7)),
+          SizedBox(width: 44),
+          SkeletonBox(width: 34, height: 11, radius: 5),
+        ],
+      ),
+      const SizedBox(height: 24),
+      _TimelineSkeletonItem(),
+      _TimelineSkeletonItem(),
+      _TimelineSkeletonItem(last: true),
+    ],
+  );
+}
+
+class _TimelineSkeletonItem extends StatelessWidget {
+  const _TimelineSkeletonItem({this.last = false});
+
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) => IntrinsicHeight(
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: 38,
+          child: Column(
+            children: [
+              const SkeletonBox(width: 32, height: 32, radius: 16),
+              if (!last)
+                Expanded(child: Container(width: 2, color: AppColors.border)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    SkeletonBox(width: 132, height: 12, radius: 6),
+                    SizedBox(height: 14),
+                    SkeletonBox(width: 92, height: 10, radius: 5),
+                    SizedBox(height: 14),
+                    SkeletonBox(height: 10, radius: 5),
+                    SizedBox(height: 8),
+                    SkeletonBox(width: 150, height: 10, radius: 5),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _TimelineTabError extends StatelessWidget {
+  const _TimelineTabError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    // Scrollable so a long backend message cannot overflow a short tab.
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, color: AppColors.error, size: 40),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTypography.body.copyWith(color: AppColors.muted),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: Text(context.tr('Retry', 'إعادة المحاولة')),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Related Requests panel, driven entirely by `GetIncidentRequests`.
+///
+/// Consumes the API DTOs directly ([IncidentRequestsData] /
+/// [IncidentRequestItemDto]) instead of the prototype `RelatedRequest` model, so
+/// nothing on screen has to be invented to satisfy the old shape.
+class _RequestsTab extends StatelessWidget {
+  const _RequestsTab({
+    required this.data,
+    required this.loading,
+    required this.failure,
+    required this.onRetry,
+  });
+
+  final IncidentRequestsData? data;
+  final bool loading;
+  final Failure? failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    // First load: placeholder only inside this tab, so the AppBar, header, tab
+    // bar and action area stay visible. It also covers the idle frame before the
+    // first dispatch reaches the bloc.
+    final requests = data;
+    if (requests == null) {
+      if (failure != null) {
+        return _RequestsTabError(message: failure!.message, onRetry: onRetry);
+      }
+      return const _RequestsTabSkeleton();
+    }
+
+    final items = requests.items ?? const <IncidentRequestItemDto>[];
+    if (items.isEmpty) {
+      // An empty list is a successful response, not a failure.
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
+        children: [
+          const _RequestsTabHeader(),
+          const SizedBox(height: 18),
+          _RequestsEmptyState(
+            // Surfaces a backend that answers with no rows for an incident that
+            // does have requests, without turning it into an error.
+            message: failure?.message,
+          ),
+        ],
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
+      children: [
+        // Refresh and post-refresh failure indicators are non-blocking: the last
+        // successful list stays on screen.
+        if (loading || failure != null) ...[
+          _TabNotice(
+            loading: loading,
+            message: failure?.message,
+            onRetry: onRetry,
+          ),
+          const SizedBox(height: 13),
+        ],
+        const _RequestsTabHeader(),
+        const SizedBox(height: 18),
+        for (final group in _groupRequestsByType(items)) ...[
+          _RequestGroupHeader(
+            typeName: group.typeName,
+            count: group.items.length,
+          ),
+          const SizedBox(height: 9),
+          for (final item in group.items) _RequestCard(item: item),
+          const SizedBox(height: 20),
+        ],
+      ],
+    );
+  }
+}
+
+/// Title block shared by the loaded and empty states.
+class _RequestsTabHeader extends StatelessWidget {
+  const _RequestsTabHeader();
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(
         context.tr('Related Requests', 'الطلبات المرتبطة'),
@@ -880,213 +1459,292 @@ class _RequestsTab extends StatelessWidget {
         ),
         style: AppTypography.body.copyWith(color: AppColors.muted),
       ),
-      const SizedBox(height: 18),
-      ...RelatedRequestType.values.map((type) {
-        final typeRequests = requests.where((item) => item.type == type);
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(_requestIcon(type), size: 19, color: AppColors.orange),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _requestTypePlural(context, type),
-                      style: AppTypography.section,
-                    ),
-                  ),
-                  Text(
-                    '${typeRequests.length}',
-                    style: AppTypography.meta.copyWith(color: AppColors.muted),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 9),
-              ...typeRequests.map(
-                (request) => _RequestCard(
-                  request: request,
-                  incident: incident,
-                  onApprove: () => onApprove(request),
-                  onReject: () => onReject(request),
-                ),
-              ),
-            ],
-          ),
-        );
-      }),
     ],
   );
 }
 
+/// One request as returned by the API.
+///
+/// No tap target: `RequestDetailsScreen` needs a full `MyRequest` (questionnaire,
+/// renewal minutes, serial, attachments) that `GetIncidentRequests` does not
+/// return, and fabricating those from `MockData` would show invented data as
+/// real. Navigation returns with the `GetRequestDetails` API.
 class _RequestCard extends StatelessWidget {
-  const _RequestCard({
-    required this.request,
-    required this.incident,
-    required this.onApprove,
-    required this.onReject,
-  });
-  final RelatedRequest request;
-  final CapIncident incident;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
+  const _RequestCard({required this.item});
 
-  MyRequest get details {
-    final matches = MockData.myRequests.where(
-      (item) => item.number == request.number,
-    );
-    final saved = matches.isEmpty ? null : matches.first;
-    final status = switch (request.status) {
-      'Approved' => MyRequestStatus.approved,
-      'Rejected' => MyRequestStatus.rejected,
-      'Completed' => MyRequestStatus.completed,
-      _ => MyRequestStatus.pending,
-    };
-    return MyRequest(
-      number: request.number,
-      type: request.type,
-      status: status,
-      incidentNumber: incident.number,
-      siteName: incident.siteName,
-      siteCode: incident.siteCode,
-      createdDate: request.dateTime,
-      createdBy: request.createdBy,
-      questionnaireSummary:
-          saved?.questionnaireSummary ??
-          switch (request.type) {
-            RelatedRequestType.intervention =>
-              'Site access and intervention requirements were confirmed.',
-            RelatedRequestType.renewal =>
-              'Additional intervention time was requested for field work.',
-            RelatedRequestType.departure =>
-              'Site departure checks and handover details were recorded.',
-          },
-      renewalMinutes: request.type == RelatedRequestType.renewal
-          ? saved?.renewalMinutes ?? 60
-          : null,
-      confirmationSerial: request.type == RelatedRequestType.departure
-          ? saved?.confirmationSerial ?? MockData.confirmationSerialNumber
-          : null,
-      attachments: request.type == RelatedRequestType.intervention
-          ? saved?.attachments ?? const ['site_evidence.jpg']
-          : const [],
-    );
-  }
+  final IncidentRequestItemDto item;
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (request.status) {
-      'Approved' => AppColors.success,
-      'Rejected' => AppColors.error,
-      'Draft' => AppColors.muted,
-      _ => AppColors.warning,
-    };
+    final statusName = item.requestStatus?.name?.trim();
     return Card(
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => RequestDetailsScreen(request: details),
-          ),
-        ),
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      request.number,
-                      style: AppTypography.label.copyWith(
-                        color: AppColors.orangeDark,
-                      ),
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    // The API exposes a numeric request id, not a request
+                    // number, so it is labelled as an id and never dressed up as
+                    // something like "REQ-1".
+                    context.tr(
+                      'Request ID: ${item.id ?? '-'}',
+                      'رقم الطلب: ${item.id ?? '-'}',
+                    ),
+                    style: AppTypography.label.copyWith(
+                      color: AppColors.orangeDark,
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: .1),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Text(
-                      _requestStatus(context, request.status),
-                      style: AppTypography.meta.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  Icon(
-                    Directionality.of(context) == TextDirection.rtl
-                        ? Icons.chevron_left
-                        : Icons.chevron_right,
-                    color: AppColors.muted,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 11),
-              _RequestRow(
-                icon: Icons.category_outlined,
-                label: context.tr('Type', 'النوع'),
-                value: _requestTypeLabel(context, request.type),
-              ),
-              const SizedBox(height: 7),
-              _RequestRow(
-                icon: Icons.schedule,
-                label: context.tr('Date', 'التاريخ'),
-                value: _dateTime(request.dateTime),
-              ),
-              const SizedBox(height: 7),
-              _RequestRow(
-                icon: Icons.person_outline,
-                label: context.tr('Created By', 'أنشأه'),
-                value: request.createdBy,
-              ),
-              if (request.status == 'Pending Approval') ...[
-                const Divider(height: 25),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: onReject,
-                        icon: const Icon(Icons.close),
-                        label: Text(context.tr('Reject', 'رفض')),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.error,
-                          minimumSize: const Size(0, 48),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 9),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: onApprove,
-                        icon: const Icon(Icons.check),
-                        label: Text(context.tr('Approve', 'موافقة')),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.success,
-                          minimumSize: const Size(0, 48),
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
+                _RequestStatusChip(statusName: statusName),
               ],
-            ],
-          ),
+            ),
+            const SizedBox(height: 11),
+            _RequestRow(
+              icon: Icons.category_outlined,
+              label: context.tr('Type', 'النوع'),
+              value: _orDash(item.requestType?.name),
+            ),
+            const SizedBox(height: 7),
+            _RequestRow(
+              icon: Icons.schedule,
+              label: context.tr('Date', 'التاريخ'),
+              value: _apiDate(item.createdDate),
+            ),
+            const SizedBox(height: 7),
+            _RequestRow(
+              icon: Icons.person_outline,
+              label: context.tr('Created By', 'أنشأه'),
+              value: _orDash(item.createdBy?.name),
+            ),
+            const SizedBox(height: 7),
+            _RequestRow(
+              icon: Icons.notes_outlined,
+              label: context.tr('Remark', 'ملاحظات'),
+              value: _orDash(item.remark),
+            ),
+            const SizedBox(height: 7),
+            _RequestRow(
+              icon: Icons.person_pin_circle_outlined,
+              label: context.tr('Last Modified By', 'آخر تعديل بواسطة'),
+              value: _orDash(item.lastModifiedBy?.name),
+            ),
+            const SizedBox(height: 7),
+            _RequestRow(
+              icon: Icons.update,
+              label: context.tr('Last Modified Date', 'تاريخ آخر تعديل'),
+              value: _apiDate(item.lastModifiedDate),
+            ),
+          ],
         ),
       ),
     );
   }
+}
+
+/// Status pill that keeps the existing colour language and degrades to a neutral
+/// tone for statuses the API adds later.
+class _RequestStatusChip extends StatelessWidget {
+  const _RequestStatusChip({required this.statusName});
+
+  final String? statusName;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = statusName ?? '';
+    final color = switch (name.toLowerCase()) {
+      'approved' => AppColors.success,
+      'rejected' => AppColors.error,
+      _ => AppColors.muted,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .1),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Text(
+        _requestStatus(context, name),
+        style: AppTypography.meta.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+/// Group header for one request type, keeping the previous grouped layout.
+///
+/// The title is the API's own `requestType.name`; unknown types are grouped and
+/// shown rather than dropped, and only the icon falls back to a generic one.
+class _RequestGroupHeader extends StatelessWidget {
+  const _RequestGroupHeader({required this.typeName, required this.count});
+
+  final String? typeName;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = typeName?.trim();
+    return Row(
+      children: [
+        Icon(_requestIconForType(title), size: 19, color: AppColors.orange),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title == null || title.isEmpty
+                ? context.tr('Requests', 'الطلبات')
+                : title,
+            style: AppTypography.section,
+          ),
+        ),
+        Text(
+          '$count',
+          style: AppTypography.meta.copyWith(color: AppColors.muted),
+        ),
+      ],
+    );
+  }
+}
+
+/// Placeholder shown inside the Related Requests tab on its first load.
+class _RequestsTabSkeleton extends StatelessWidget {
+  const _RequestsTabSkeleton();
+
+  @override
+  Widget build(BuildContext context) => ListView(
+    padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
+    children: const [
+      _RequestsTabHeader(),
+      SizedBox(height: 18),
+      _RequestSkeletonCard(),
+      SizedBox(height: 20),
+      _RequestSkeletonCard(),
+    ],
+  );
+}
+
+class _RequestSkeletonCard extends StatelessWidget {
+  const _RequestSkeletonCard();
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(15),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          SkeletonBox(width: 130, height: 12, radius: 6),
+          SizedBox(height: 18),
+          SkeletonBox(height: 10, radius: 5),
+          SizedBox(height: 14),
+          SkeletonBox(height: 10, radius: 5),
+          SizedBox(height: 14),
+          SkeletonBox(width: 200, height: 10, radius: 5),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Full-tab error state, used when a load failed with no data to fall back on.
+class _RequestsTabError extends StatelessWidget {
+  const _RequestsTabError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    // Scrollable so a long backend message cannot overflow a short tab.
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, color: AppColors.error, size: 40),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTypography.body.copyWith(color: AppColors.muted),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: Text(context.tr('Retry', 'إعادة المحاولة')),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Success-with-no-rows state. Deliberately not an error: the backend answered
+/// correctly and simply has nothing linked to this incident.
+class _RequestsEmptyState extends StatelessWidget {
+  const _RequestsEmptyState({this.message});
+
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 44, horizontal: 12),
+    child: Column(
+      children: [
+        Icon(
+          Icons.inbox_outlined,
+          size: 40,
+          color: AppColors.muted.withValues(alpha: .7),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          context.tr('No related requests', 'لا توجد طلبات مرتبطة'),
+          textAlign: TextAlign.center,
+          style: AppTypography.body.copyWith(color: AppColors.muted),
+        ),
+        if (message != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            message!,
+            textAlign: TextAlign.center,
+            style: AppTypography.meta.copyWith(color: AppColors.muted),
+          ),
+        ],
+      ],
+    ),
+  );
+}
+
+/// Requests bucketed by the type name the API returned, preserving the order the
+/// types first appear in so the grouping stays stable across refreshes.
+class _RequestGroup {
+  const _RequestGroup({required this.typeName, required this.items});
+
+  final String? typeName;
+  final List<IncidentRequestItemDto> items;
+}
+
+List<_RequestGroup> _groupRequestsByType(List<IncidentRequestItemDto> items) {
+  final order = <String?>{};
+  final grouped = <String?, List<IncidentRequestItemDto>>{};
+  for (final item in items) {
+    final name = item.requestType?.name?.trim();
+    final key = name == null || name.isEmpty ? null : name;
+    if (!grouped.containsKey(key)) {
+      grouped[key] = <IncidentRequestItemDto>[];
+      order.add(key);
+    }
+    grouped[key]!.add(item);
+  }
+  return [
+    for (final key in order) _RequestGroup(typeName: key, items: grouped[key]!),
+  ];
 }
 
 class _RequestRow extends StatelessWidget {
@@ -1311,14 +1969,44 @@ class _ActionArea extends StatelessWidget {
   }
 }
 
-IconData _requestIcon(RelatedRequestType type) => switch (type) {
-  RelatedRequestType.intervention => Icons.build_circle_outlined,
-  RelatedRequestType.renewal => Icons.autorenew,
-  RelatedRequestType.departure => Icons.logout,
-};
+/// Icon for a request type, keyed on the API's `requestType.name`.
+///
+/// Matching on the display name rather than a numeric id keeps unknown types
+/// working: they simply fall through to the generic icon instead of being
+/// dropped or forced into a guessed mapping.
+IconData _requestIconForType(String? typeName) =>
+    switch (typeName?.trim().toLowerCase()) {
+      'intervention request' => Icons.build_circle_outlined,
+      'renewal request' => Icons.autorenew,
+      'departure request' => Icons.logout,
+      _ => Icons.description_outlined,
+    };
 
-String _dateTime(DateTime date) =>
-    '${date.day.toString().padLeft(2, '0')} Aug 2026 • ${(date.hour > 12 ? date.hour - 12 : date.hour).toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} ${date.hour >= 12 ? 'PM' : 'AM'}';
+/// Placeholder for API fields that arrived empty or null, so the UI never
+/// renders the literal text "null".
+String _orDash(String? value) {
+  final trimmed = value?.trim() ?? '';
+  return trimmed.isEmpty ? '-' : trimmed;
+}
+
+/// Formats a CAP date string for display.
+///
+/// The API sends dates as strings whose exact shape has not been confirmed, so
+/// anything unparseable is returned trimmed and unchanged rather than guessed
+/// at. Needs Verification: the accepted date format should be pinned once a live
+/// `GetIncidentDetails` payload is available.
+String _apiDate(String? value) {
+  final trimmed = value?.trim() ?? '';
+  if (trimmed.isEmpty) return '-';
+  final parsed = DateTime.tryParse(trimmed);
+  if (parsed == null) return trimmed;
+  final hour = parsed.hour > 12 ? parsed.hour - 12 : parsed.hour;
+  final suffix = parsed.hour >= 12 ? 'PM' : 'AM';
+  return '${parsed.day.toString().padLeft(2, '0')}/'
+      '${parsed.month.toString().padLeft(2, '0')}/${parsed.year} • '
+      '${hour.toString().padLeft(2, '0')}:'
+      '${parsed.minute.toString().padLeft(2, '0')} $suffix';
+}
 
 String _statusLabel(BuildContext context, CapIncidentStatus status) =>
     switch (status) {
@@ -1334,35 +2022,6 @@ String _statusLabel(BuildContext context, CapIncidentStatus status) =>
       CapIncidentStatus.cancelled => context.tr('Cancelled', 'ملغى'),
     };
 
-String _requestTypeLabel(BuildContext context, RelatedRequestType type) =>
-    switch (type) {
-      RelatedRequestType.intervention => context.tr(
-        'Intervention Request',
-        'طلب تدخل',
-      ),
-      RelatedRequestType.renewal => context.tr('Renewal Request', 'طلب تجديد'),
-      RelatedRequestType.departure => context.tr(
-        'Departure Request',
-        'طلب مغادرة',
-      ),
-    };
-
-String _requestTypePlural(BuildContext context, RelatedRequestType type) =>
-    switch (type) {
-      RelatedRequestType.intervention => context.tr(
-        'Intervention Requests',
-        'طلبات التدخل',
-      ),
-      RelatedRequestType.renewal => context.tr(
-        'Renewal Requests',
-        'طلبات التجديد',
-      ),
-      RelatedRequestType.departure => context.tr(
-        'Departure Requests',
-        'طلبات المغادرة',
-      ),
-    };
-
 String _requestStatus(BuildContext context, String status) => switch (status) {
   'Approved' => context.tr('Approved', 'موافق عليه'),
   'Rejected' => context.tr('Rejected', 'مرفوض'),
@@ -1370,28 +2029,3 @@ String _requestStatus(BuildContext context, String status) => switch (status) {
   'Pending Approval' => context.tr('Pending Approval', 'بانتظار الموافقة'),
   _ => status,
 };
-
-String _eventAction(BuildContext context, String action) => switch (action) {
-  'Created' => context.tr('Created', 'تم الإنشاء'),
-  'Assigned' => context.tr('Assigned', 'تم الإسناد'),
-  'Started' => context.tr('Started', 'تم البدء'),
-  'On Hold' => context.tr('On Hold', 'تم التعليق'),
-  'Renewed' => context.tr('Renewed', 'تم التجديد'),
-  'Completed' => context.tr('Completed', 'تم الإكمال'),
-  'Closed' => context.tr('Closed', 'تم الإغلاق'),
-  _ => action,
-};
-
-String _eventRemarks(BuildContext context, String action, String english) {
-  final arabic = switch (action) {
-    'Created' => 'تم إنشاء البلاغ من إنذار حرج بوحدة المقوم.',
-    'Assigned' => 'تم إسناده إلى فريق العمليات الميدانية بالقاهرة الكبرى.',
-    'Started' => 'أكد المهندس دخول الموقع وبدأ العمل الميداني.',
-    'On Hold' => 'بانتظار الموافقة على وحدة المقوم البديلة.',
-    'Renewed' => 'تم تمديد نافذة العمل لساعتين إضافيتين.',
-    'Completed' => 'تم استبدال الوحدة وعادت القراءات إلى المستوى الطبيعي.',
-    'Closed' => 'تمت مراجعة الأدلة وإغلاق البلاغ رسميًا.',
-    _ => english,
-  };
-  return context.strings.isArabic ? arabic : english;
-}

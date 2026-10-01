@@ -1,4 +1,7 @@
 import 'package:access_log_plus/app.dart';
+import 'package:access_log_plus/core/di/injection.dart';
+import 'package:access_log_plus/features/incidents/domain/usecases/get_incident_list_use_case.dart';
+import 'package:access_log_plus/features/incidents/data/repositories/demo_incident_repository.dart';
 import 'package:access_log_plus/core/theme/app_theme.dart';
 import 'package:access_log_plus/mock/mock_data.dart';
 import 'package:access_log_plus/models/models.dart';
@@ -18,6 +21,14 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  // The list no longer reads MockData inside the widget. These prototype flow
+  // tests explicitly inject their fixture repository through the real use case.
+  setUp(
+    () => services.registerSingleton<GetIncidentListUseCase>(
+      GetIncidentListUseCase(DemoIncidentRepository()),
+    ),
+  );
+  tearDown(() async => services.reset());
   Future<void> setPhoneSize(WidgetTester tester, Size size) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;

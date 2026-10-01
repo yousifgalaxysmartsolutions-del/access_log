@@ -18,6 +18,8 @@ class _StubAdapter implements HttpClientAdapter {
   _StubAdapter(this.body);
   final Map<String, dynamic> body;
   RequestOptions? lastRequest;
+  final requests = <RequestOptions>[];
+  Map<String, dynamic> Function(RequestOptions)? respond;
 
   @override
   Future<ResponseBody> fetch(
@@ -26,11 +28,12 @@ class _StubAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     lastRequest = options;
+    requests.add(options);
     // Mirrors what Dio's real adapter does to the request body before sending,
     // so an unserializable payload fails here instead of silently passing.
     jsonEncode(options.data);
     return ResponseBody.fromString(
-      jsonEncode(body),
+      jsonEncode(respond?.call(options) ?? body),
       200,
       headers: {
         Headers.contentTypeHeader: [Headers.jsonContentType],
@@ -100,6 +103,72 @@ void main() {
           appVersion: '1',
         ),
       );
+
+  test(
+    'range requests use existing paging keys and collect every page',
+    () async {
+      final adapter = _StubAdapter(_payload);
+      adapter.respond = (options) {
+        final sent = jsonDecode(jsonEncode(options.data)) as Map;
+        final page = (sent['data'] as Map)['Page'] as int;
+        expect((sent['data'] as Map)['FromDate'], '2026-09-01');
+        expect((sent['data'] as Map)['ToDate'], '2026-09-30');
+        return {
+          'resultcode': 1,
+          'data': {
+            'items': [
+              {'incidentId': page, 'incidentNo': 'INC-$page'},
+            ],
+            'totalCount': 2,
+            'page': page,
+            'pageSize': 1,
+          },
+        };
+      };
+      final dio = Dio(BaseOptions(baseUrl: 'https://cap.test'))
+        ..httpClientAdapter = adapter;
+      final repo = IncidentRepositoryImpl(
+        IncidentApiService(dio),
+        contextWith(const SessionUser(id: '4098')),
+      );
+      final result = await repo.getIncidentsForDay(
+        day: DateTime(2026, 9, 1),
+        toDate: DateTime(2026, 9, 30),
+      );
+      expect(
+        (result as Success<List<CapIncident>>).data.map((i) => i.incidentId),
+        [1, 2],
+      );
+      expect(adapter.requests.length, 2);
+    },
+  );
+
+  test(
+    'repeated server page fails instead of pretending partial list is complete',
+    () async {
+      final adapter = _StubAdapter({
+        'resultcode': 1,
+        'data': {
+          'items': [
+            {'incidentId': 1},
+          ],
+          'totalCount': 2,
+          'page': 1,
+        },
+      });
+      final dio = Dio(BaseOptions(baseUrl: 'https://cap.test'))
+        ..httpClientAdapter = adapter;
+      final repo = IncidentRepositoryImpl(
+        IncidentApiService(dio),
+        contextWith(const SessionUser(id: '4098')),
+      );
+      expect(
+        await repo.getIncidentsForDay(day: DateTime(2026, 9, 1)),
+        isA<FailureResult<List<CapIncident>>>(),
+      );
+      expect(adapter.requests.length, 2);
+    },
+  );
 
   test('GetIncidentList maps the CAP payload into CapIncident list', () async {
     final adapter = _StubAdapter(_payload);

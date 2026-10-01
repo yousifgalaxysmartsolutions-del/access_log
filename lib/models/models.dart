@@ -151,6 +151,12 @@ class Incident {
 
 class CapIncident {
   const CapIncident({
+    /// Real CAP `incidentId` from `GetIncidentList`.
+    ///
+    /// Required so every construction site has to decide what the id is: detail
+    /// endpoints such as `GetIncidentDetails` need this value, and it cannot be
+    /// recovered from [number] or from a list position.
+    required this.incidentId,
     required this.number,
     required this.type,
     required this.siteName,
@@ -163,6 +169,7 @@ class CapIncident {
     required this.dateTime,
     required this.status,
     required this.currentUser,
+    this.hasRealDate = true,
     this.needsApproval = false,
     this.description =
         'Network monitoring generated this CAP incident for field assessment and corrective action.',
@@ -171,6 +178,8 @@ class CapIncident {
     this.notificationType = 'Operational Alarm',
   });
 
+  final int incidentId;
+  final bool hasRealDate;
   final String number;
   final String type;
   final String siteName;
@@ -326,6 +335,18 @@ class IncidentListFilter {
   final Priority? priority;
   final String? region, area, site, incidentNumber, type, location;
   final DateTime? from, to;
+
+  IncidentListFilter withoutStatus() => IncidentListFilter(
+    priority: priority,
+    region: region,
+    area: area,
+    site: site,
+    incidentNumber: incidentNumber,
+    type: type,
+    location: location,
+    from: from,
+    to: to,
+  );
 
   bool get isActive =>
       status != null ||

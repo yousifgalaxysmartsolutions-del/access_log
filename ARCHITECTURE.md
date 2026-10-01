@@ -151,3 +151,38 @@ Modified existing files: pubspec.yaml/lock, main.dart, app.dart, core/routes/app
 screens/auth/auth_screens.dart, widgets/session_timeout_ui.dart and the Copilot
 service/controller/screen. New foundation files are listed above. No existing
 screens were moved or redesigned.
+
+## Incident list integration
+
+`IncidentListScreen` now owns one `IncidentListBloc`, resolving the existing
+`GetIncidentListUseCase` from DI. It reuses `IncidentRepositoryImpl`, Retrofit,
+the CAP envelope/context, DTO parser and `IncidentMapper`; no parallel API stack
+or widget JSON parsing was added. Missing DI shows an error, not demo incidents.
+The existing explicit mock-auth DI configuration remains unchanged.
+
+The existing single-day repository/use-case method accepts an optional `toDate`
+for ranges, keeping dashboard callers compatible. No date filter means the local
+current day; one bound means that single day. Invalid ranges are rejected.
+Only date changes or refresh/retry trigger a new fetch; search, status, priority,
+region, area, site, number, type and location are matched locally. The DTO's
+existing filter defaults remain untouched. Reset restores today; removing the
+status chip preserves the other filters.
+
+The existing request DTO already supports `Page` and `PageSize`. The repository
+collects pages until `totalCount` is satisfied and rejects repeated/nonadvancing
+pages instead of silently presenting a partial collection. This behavior is
+covered by adapter tests, but has not been verified against a live multi-page
+server response. No new request keys or status/priority ID assumptions were added.
+
+CAP's observed list response has no incident timestamp. `hasRealDate` records
+whether the mapper actually received one; cards show “Date unavailable” otherwise.
+Newest/oldest preserve backend order whenever a filtered list contains unknown
+dates; priority sorting remains local. The legacy non-null `dateTime` fallback
+is retained for compatibility, not presented as an actual event timestamp here.
+The existing unknown-status fallback remains unchanged.
+
+Refresh keeps successful rows on failure. A changed range clears old rows so they
+are not mislabeled as belonging to the new range. Initial loading uses the shared
+skeleton, errors allow retry, and empty API responses differ from no local matches.
+Card navigation passes the mapped `CapIncident` with its numeric `incidentId`.
+The second incidents screen was not changed.

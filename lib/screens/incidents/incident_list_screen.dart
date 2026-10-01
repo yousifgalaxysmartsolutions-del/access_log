@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import '../../core/di/injection.dart';
+import '../../core/error/failure.dart';
+import '../../features/incidents/domain/usecases/get_incident_list_use_case.dart';
+import '../../features/incidents/presentation/bloc/incident_list_bloc.dart';
+import '../../widgets/skeleton_shimmer.dart';
 
 import '../../core/localization/app_strings.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/theme/app_tokens.dart';
-import '../../mock/mock_data.dart';
 import '../../models/models.dart';
 import '../../widgets/cap_incident_card.dart';
 import '../../widgets/empty_state.dart';
@@ -21,16 +25,25 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
   final searchController = TextEditingController();
   late IncidentListFilter filter;
   IncidentSort sort = IncidentSort.newest;
+  late final IncidentListBloc bloc;
 
   @override
   void initState() {
     super.initState();
     filter = widget.initialFilter ?? const IncidentListFilter();
+    bloc = IncidentListBloc(
+      services.isRegistered<GetIncidentListUseCase>()
+          ? services<GetIncidentListUseCase>()
+          : null,
+    );
+    final (from, to) = IncidentListBloc.range(filter);
+    bloc.load(from, to);
   }
 
   @override
   void dispose() {
     searchController.dispose();
+    bloc.close();
     super.dispose();
   }
 
@@ -40,11 +53,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
         expected == null ||
         expected.isEmpty ||
         value.toLowerCase().contains(expected.toLowerCase());
-    final items = MockData.capIncidents.where((incident) {
-      final isToday =
-          incident.dateTime.year == 2026 &&
-          incident.dateTime.month == 8 &&
-          incident.dateTime.day == 10;
+    final items = bloc.state.incidents.where((incident) {
       final matchesSearch =
           query.isEmpty ||
           [
@@ -54,9 +63,10 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
             incident.siteCode,
             incident.title,
             incident.area,
+            incident.region,
+            incident.location,
           ].any((value) => value.toLowerCase().contains(query));
-      return isToday &&
-          matchesSearch &&
+      return matchesSearch &&
           (filter.status == null || incident.status == filter.status) &&
           (filter.priority == null || incident.priority == filter.priority) &&
           contains(incident.region, filter.region) &&
@@ -64,18 +74,17 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
           contains('${incident.siteName} ${incident.siteCode}', filter.site) &&
           contains(incident.number, filter.incidentNumber) &&
           contains(incident.type, filter.type) &&
-          contains(incident.location, filter.location) &&
-          (filter.from == null || !incident.dateTime.isBefore(filter.from!)) &&
-          (filter.to == null ||
-              incident.dateTime.isBefore(
-                filter.to!.add(const Duration(days: 1)),
-              ));
+          contains(incident.location, filter.location);
     }).toList();
     switch (sort) {
       case IncidentSort.newest:
-        items.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+        if (items.every((item) => item.hasRealDate)) {
+          items.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+        }
       case IncidentSort.oldest:
-        items.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+        if (items.every((item) => item.hasRealDate)) {
+          items.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+        }
       case IncidentSort.priority:
         const rank = {
           Priority.critical: 0,
@@ -94,14 +103,30 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => IncidentFilterSheet(initial: filter),
+      builder: (_) => Material(child: IncidentFilterSheet(initial: filter)),
     );
-    if (updated != null) setState(() => filter = updated);
+    if (updated != null && mounted) {
+      final (from, to) = IncidentListBloc.range(updated);
+      if (from.isAfter(to)) return;
+      setState(() => filter = updated);
+      if (from != bloc.state.from || to != bloc.state.to) {
+        await bloc.load(from, to);
+      }
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => StreamBuilder<IncidentListState>(
+    stream: bloc.stream,
+    initialData: bloc.state,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final items = results;
+    final state = bloc.state;
+    String formatDate(DateTime date) =>
+        '${MaterialLocalizations.of(context).formatMediumDate(date)} ${date.year}';
     return Scaffold(
       appBar: AppBar(
         title: Text(context.tr('Today’s Incidents', 'بلاغات اليوم')),
@@ -131,10 +156,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       ),
       body: RefreshIndicator(
         color: AppColors.orange,
-        onRefresh: () async {
-          await Future<void>.delayed(const Duration(milliseconds: 750));
-          if (mounted) setState(() {});
-        },
+        onRefresh: () => bloc.load(state.from, state.to),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
@@ -219,10 +241,14 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
                           style: AppTypography.section,
                         ),
                       ),
-                      Text(
-                        '10 Aug 2026',
-                        style: AppTypography.meta.copyWith(
-                          color: AppColors.muted,
+                      Flexible(
+                        child: Text(
+                          state.from == state.to
+                              ? formatDate(state.from)
+                              : '${formatDate(state.from)} – ${formatDate(state.to)}',
+                          style: AppTypography.meta.copyWith(
+                            color: AppColors.muted,
+                          ),
                         ),
                       ),
                     ],
@@ -234,22 +260,62 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
                       child: InputChip(
                         label: Text(_statusLabel(context, filter.status!)),
                         onDeleted: () =>
-                            setState(() => filter = const IncidentListFilter()),
+                            setState(() => filter = filter.withoutStatus()),
                       ),
+                    ),
+                  ],
+                  if (state.incidents.any((item) => !item.hasRealDate))
+                    Text(
+                      context.tr(
+                        'Incident dates unavailable; date sorting keeps server order.',
+                        'تواريخ البلاغات غير متاحة؛ الترتيب الزمني يحتفظ بترتيب الخادم.',
+                      ),
+                      style: AppTypography.meta,
+                    ),
+                  if (state.failure != null) ...[
+                    Text(
+                      state.failure is ValidationFailure
+                          ? context.tr(
+                              'Start date must be on or before end date.',
+                              'تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.',
+                            )
+                          : context.tr(
+                              'Unable to load incidents. Check your connection and try again.',
+                              'تعذر تحميل البلاغات. تحقق من الاتصال وأعد المحاولة.',
+                            ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => bloc.load(state.from, state.to),
+                      icon: const Icon(Icons.refresh),
+                      label: Text(context.tr('Retry', 'إعادة المحاولة')),
                     ),
                   ],
                 ],
               ),
             ),
-            if (items.isEmpty)
+            if (state.loading && state.incidents.isEmpty)
+              SliverList.list(
+                children: List.generate(
+                  3,
+                  (_) => const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: SkeletonBox(height: 200),
+                  ),
+                ),
+              )
+            else if (items.isEmpty && state.failure == null)
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: EmptyState(
                   icon: Icons.search_off,
                   title: context.tr('No incidents found', 'لا توجد بلاغات'),
                   description: context.tr(
-                    'Try adjusting your search or filter criteria.',
-                    'جرّب تعديل البحث أو معايير التصفية.',
+                    state.incidents.isEmpty
+                        ? 'No incidents in the selected date range.'
+                        : 'Try adjusting your search or filter criteria.',
+                    state.incidents.isEmpty
+                        ? 'لا توجد بلاغات في نطاق التاريخ المحدد.'
+                        : 'جرّب تعديل البحث أو معايير التصفية.',
                   ),
                 ),
               )
@@ -296,6 +362,7 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
   late final location = TextEditingController(text: widget.initial.location);
   DateTime? from;
   DateTime? to;
+  bool invalidRange = false;
 
   @override
   void initState() {
@@ -315,11 +382,11 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
   Future<void> _date(bool start) async {
     final selected = await showDatePicker(
       context: context,
-      firstDate: DateTime(2025),
-      lastDate: DateTime(2027),
+      firstDate: DateTime(DateTime.now().year - 20),
+      lastDate: DateTime(DateTime.now().year + 20),
       initialDate: start
-          ? (from ?? DateTime(2026, 8, 10))
-          : (to ?? DateTime(2026, 8, 10)),
+          ? (from ?? DateTime.now())
+          : (to ?? from ?? DateTime.now()),
     );
     if (selected != null) {
       setState(() => start ? from = selected : to = selected);
@@ -394,6 +461,14 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                 ],
               ),
               const SizedBox(height: 14),
+              if (invalidRange)
+                Text(
+                  context.tr(
+                    'Start date must be on or before end date.',
+                    'تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.',
+                  ),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               Row(
                 children: [
                   Expanded(
@@ -496,21 +571,27 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
               const SizedBox(width: 11),
               Expanded(
                 child: FilledButton(
-                  onPressed: () => Navigator.pop(
-                    context,
-                    IncidentListFilter(
-                      status: status,
-                      priority: priority,
-                      region: region.text,
-                      area: area.text,
-                      site: site.text,
-                      incidentNumber: number.text,
-                      type: type.text,
-                      location: location.text,
-                      from: from,
-                      to: to,
-                    ),
-                  ),
+                  onPressed: () {
+                    if (from != null && to != null && from!.isAfter(to!)) {
+                      setState(() => invalidRange = true);
+                      return;
+                    }
+                    Navigator.pop(
+                      context,
+                      IncidentListFilter(
+                        status: status,
+                        priority: priority,
+                        region: region.text,
+                        area: area.text,
+                        site: site.text,
+                        incidentNumber: number.text,
+                        type: type.text,
+                        location: location.text,
+                        from: from,
+                        to: to,
+                      ),
+                    );
+                  },
                   child: Text(context.tr('Apply Filters', 'تطبيق الفلاتر')),
                 ),
               ),

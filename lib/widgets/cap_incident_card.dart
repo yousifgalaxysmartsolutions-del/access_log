@@ -114,7 +114,9 @@ class CapIncidentCard extends StatelessWidget {
                   ),
                   _Pill(
                     icon: Icons.schedule,
-                    label: _formatDate(incident.dateTime),
+                    label: incident.hasRealDate
+                        ? _formatDate(incident.dateTime)
+                        : context.tr('Date unavailable', 'التاريخ غير متاح'),
                   ),
                 ],
               ),

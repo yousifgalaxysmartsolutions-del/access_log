@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../screens/app_shell.dart';
 import '../../screens/auth/auth_screens.dart';
 import '../../screens/component_showcase/component_showcase_screen.dart';
@@ -48,6 +49,8 @@ abstract final class AppRoutes {
       incidentList => IncidentListScreen(
         initialFilter: settings.arguments as IncidentListFilter?,
       ),
+      // The screen creates and disposes its own `IncidentDetailsBloc`, so
+      // screens that push it directly behave the same as this route.
       incidentDetails => IncidentDetailsScreen(
         incident: settings.arguments! as CapIncident,
       ),
