@@ -11,4 +11,6 @@ abstract interface class AuthRepository {
   });
 
   Future<SessionTokens> refresh(String refreshToken);
+
+  Future<Result<UserProfile>> getUserProfile(int userId);
 }
