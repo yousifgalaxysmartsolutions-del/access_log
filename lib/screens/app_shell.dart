@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../app.dart';
+import '../core/di/injection.dart';
 import '../core/localization/app_strings.dart';
 import '../core/routes/app_routes.dart';
+import '../core/session/session_manager.dart';
 import '../core/theme/app_tokens.dart';
 import '../mock/mock_data.dart';
 import 'dashboard/cap_dashboard_screen.dart';
@@ -102,13 +104,25 @@ class _AppShellState extends State<AppShell> {
             child: CircleAvatar(
               radius: 17,
               backgroundColor: AppColors.orange,
-              child: Text(
-                MockData.engineer.initials,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                ),
+              child: Builder(
+                builder: (context) {
+                  final sessionUserName =
+                      services.isRegistered<SessionManager>()
+                      ? services<SessionManager>().user?.name
+                      : null;
+                  final initials =
+                      sessionUserName != null && sessionUserName.isNotEmpty
+                      ? sessionUserName.substring(0, 1).toUpperCase()
+                      : MockData.engineer.initials;
+                  return Text(
+                    initials,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  );
+                },
               ),
             ),
           ),

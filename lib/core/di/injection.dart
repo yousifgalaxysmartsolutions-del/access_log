@@ -1,5 +1,13 @@
 import 'package:dio/dio.dart';
 import 'package:get_it/get_it.dart';
+import '../../features/requests/presentation/bloc/request_list_bloc.dart';
+import '../../features/requests/data/api/request_api_service.dart';
+import '../../features/requests/data/repositories/request_repository_impl.dart';
+import '../../features/requests/domain/repositories/request_repository.dart';
+import '../../features/requests/domain/usecases/get_request_lookup_use_case.dart';
+import '../../features/requests/domain/usecases/get_request_list_use_case.dart';
+import '../../features/requests/domain/usecases/approve_request_use_case.dart';
+import '../../features/requests/domain/usecases/reject_request_use_case.dart';
 import '../../ai_copilot/ai_provider_config.dart';
 import '../../ai_copilot/ai_copilot_service.dart';
 import '../../features/copilot/data/api/copilot_api_service.dart';
@@ -16,6 +24,7 @@ import '../../features/authentication/data/models/auth_models.dart';
 import '../../features/authentication/data/repositories/auth_repository_impl.dart';
 import '../../features/authentication/domain/repositories/auth_repository.dart';
 import '../../features/authentication/domain/usecases/login_use_case.dart';
+import '../../features/authentication/domain/usecases/get_user_profile_use_case.dart';
 import '../../features/authentication/presentation/bloc/login_bloc.dart';
 import '../../features/dashboard/data/api/dashboard_api_service.dart';
 import '../../features/dashboard/data/repositories/dashboard_repository_impl.dart';
@@ -109,6 +118,9 @@ Future<void> configureDependencies({
   services.registerLazySingleton<LoginUseCase>(
     () => LoginUseCase(services<AuthRepository>()),
   );
+  services.registerLazySingleton<GetUserProfileUseCase>(
+    () => GetUserProfileUseCase(services<AuthRepository>()),
+  );
   services.registerFactory<LoginBloc>(
     () => LoginBloc(services<LoginUseCase>()),
   );
@@ -135,6 +147,42 @@ Future<void> configureDependencies({
     () => CompleteCopilotUseCase(services<CopilotRepository>()),
   );
   registerDashboardDependencies(session, config);
+  registerRequestDependencies();
+}
+
+/// Uses the existing authenticated Dio and CAP context. Registration is lazy:
+/// no requests are sent during setup. The read Bloc is screen-scoped; no UI is wired.
+void registerRequestDependencies() {
+  if (services.isRegistered<RequestRepository>()) return;
+  services.registerLazySingleton<RequestApiService>(
+    () => RequestApiService(services<Dio>()),
+  );
+  services.registerLazySingleton<RequestRepository>(
+    () => RequestRepositoryImpl(
+      services<RequestApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<GetRequestLookupUseCase>(
+    () => GetRequestLookupUseCase(services<RequestRepository>()),
+  );
+  services.registerLazySingleton<GetRequestListUseCase>(
+    () => GetRequestListUseCase(services<RequestRepository>()),
+  );
+  services.registerLazySingleton<ApproveRequestUseCase>(
+    () => ApproveRequestUseCase(services<RequestRepository>()),
+  );
+  services.registerLazySingleton<RejectRequestUseCase>(
+    () => RejectRequestUseCase(services<RequestRepository>()),
+  );
+  services.registerFactory<RequestListBloc>(
+    () => RequestListBloc(
+      getRequestLookup: services<GetRequestLookupUseCase>(),
+      getRequestList: services<GetRequestListUseCase>(),
+      approveRequest: services<ApproveRequestUseCase>(),
+      rejectRequest: services<RejectRequestUseCase>(),
+    ),
+  );
 }
 
 /// Registers the dashboard and incident reads.

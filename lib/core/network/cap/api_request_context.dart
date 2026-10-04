@@ -20,6 +20,30 @@ class ApiRequestContextProvider {
 
   Future<CapDeviceAppInfo> resolveDeviceInfo() => _deviceInfo.resolve();
 
+  /// Uses the same authenticated context as ordinary requests, but explicitly
+  /// opts into Sprint 1's metadata-only serialization. `wrap` stays unchanged.
+  Future<Result<CapRequest<Null>>> wrapMetadataOnly({
+    required String authenticationMessage,
+  }) async {
+    final result = await wrap<Null>(
+      null,
+      authenticationMessage: authenticationMessage,
+    );
+    return switch (result) {
+      FailureResult(:final failure) => FailureResult(failure),
+      Success(:final data) => Success(
+        CapRequest.metadataOnly(
+          userId: data.userId,
+          deviceIdentifier: data.deviceIdentifier,
+          deviceToken: data.deviceToken,
+          osVersion: data.osVersion,
+          appVersion: data.appVersion,
+          deviceType: data.deviceType,
+        ),
+      ),
+    };
+  }
+
   /// Wraps [data] with the current user and device context.
   ///
   /// Fails when there is no signed-in user id: sending `0` would silently

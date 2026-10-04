@@ -700,7 +700,7 @@ class _GeneralTab extends StatelessWidget {
               InfoRow(
                 icon: Icons.event_outlined,
                 label: context.tr('Created Date', 'تاريخ الإنشاء'),
-                value: _apiDate(details.createdDate),
+                value: formatCapApiDate(details.createdDate),
               ),
             ],
           ),
@@ -1150,7 +1150,7 @@ class _HistoryItem extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            _apiDate(event.dateTime),
+                            formatCapApiDate(event.dateTime),
                             style: AppTypography.meta.copyWith(
                               color: AppColors.muted,
                             ),
@@ -1512,7 +1512,7 @@ class _RequestCard extends StatelessWidget {
             _RequestRow(
               icon: Icons.schedule,
               label: context.tr('Date', 'التاريخ'),
-              value: _apiDate(item.createdDate),
+              value: formatCapApiDate(item.createdDate),
             ),
             const SizedBox(height: 7),
             _RequestRow(
@@ -1536,7 +1536,7 @@ class _RequestCard extends StatelessWidget {
             _RequestRow(
               icon: Icons.update,
               label: context.tr('Last Modified Date', 'تاريخ آخر تعديل'),
-              value: _apiDate(item.lastModifiedDate),
+              value: formatCapApiDate(item.lastModifiedDate),
             ),
           ],
         ),
@@ -1995,7 +1995,7 @@ String _orDash(String? value) {
 /// anything unparseable is returned trimmed and unchanged rather than guessed
 /// at. Needs Verification: the accepted date format should be pinned once a live
 /// `GetIncidentDetails` payload is available.
-String _apiDate(String? value) {
+String formatCapApiDate(String? value) {
   final trimmed = value?.trim() ?? '';
   if (trimmed.isEmpty) return '-';
   final parsed = DateTime.tryParse(trimmed);

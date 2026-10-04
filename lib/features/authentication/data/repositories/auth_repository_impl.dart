@@ -53,6 +53,23 @@ class AuthRepositoryImpl implements AuthRepository {
     }
     return SessionTokens(access, refresh);
   }
+
+  @override
+  Future<Result<UserProfile>> getUserProfile(int userId) => apiGuard(() async {
+    final response = (await api.getUserProfile(
+      UserProfileRequest(userId: userId),
+    )).data;
+    if (response['resultcode'] != 1) {
+      throw ApiException(
+        ServerFailure(response['resultmessageen'] ?? 'Failed to get profile'),
+      );
+    }
+    final data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const FormatException('Invalid profile data');
+    }
+    return UserProfile.fromJson(data);
+  });
 }
 
 class DemoAuthRepository implements AuthRepository {
@@ -71,5 +88,22 @@ class DemoAuthRepository implements AuthRepository {
   @override
   Future<SessionTokens> refresh(String refreshToken) async {
     return const SessionTokens('demo-access', 'demo-refresh');
+  }
+
+  @override
+  Future<Result<UserProfile>> getUserProfile(int userId) async {
+    return Success(
+      UserProfile(
+        userId: userId,
+        userName: 'gsmm',
+        phoneNumber: '50987866',
+        userTypeEn: 'SuperVisior',
+        userRegion: 'Orange',
+        userTypeAr: 'SuperVisior',
+        userDevice: 'testtokens',
+        userImageUrl:
+            'http://www.ileadcloud.com:8765/BridgeForce_dev/images/Photo.jpg',
+      ),
+    );
   }
 }

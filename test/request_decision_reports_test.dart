@@ -1,6 +1,6 @@
 import 'package:access_log_plus/core/theme/app_theme.dart';
 import 'package:access_log_plus/mock/mock_data.dart';
-import 'package:access_log_plus/models/models.dart';
+import 'package:access_log_plus/features/requests/data/models/request_models.dart';
 import 'package:access_log_plus/screens/reporting/reporting_screen.dart';
 import 'package:access_log_plus/screens/requests/my_requests_screen.dart';
 import 'package:flutter/material.dart';
@@ -22,33 +22,21 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  testWidgets('request card supports local approval and rejection decisions', (
+  testWidgets('API request card is read-only without prototype navigation', (
     tester,
   ) async {
     await phone(tester);
-    final original = List<MyRequest>.of(MockData.myRequests);
-    addTearDown(() {
-      MockData.myRequests
-        ..clear()
-        ..addAll(original);
-    });
-    await tester.pumpWidget(app(const Scaffold(body: MyRequestsScreen())));
-
-    final pendingCard = find.ancestor(
-      of: find.text('REN-2026-0021'),
-      matching: find.byType(RequestCard),
+    await tester.pumpWidget(
+      app(
+        const Scaffold(body: RequestCard(request: RequestListItemDto(id: 3))),
+      ),
     );
-    final approve = find.descendant(
-      of: pendingCard,
-      matching: find.text('Approve'),
-    );
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -220));
-    await tester.pumpAndSettle();
-    await tester.tap(approve);
+    expect(find.text('Request #3'), findsOneWidget);
+    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Reject'), findsNothing);
+    await tester.tap(find.text('Request #3'));
     await tester.pump();
-
-    final updated = tester.widget<RequestCard>(pendingCard).request;
-    expect(updated.status, MyRequestStatus.approved);
+    expect(find.byType(RequestDetailsScreen), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

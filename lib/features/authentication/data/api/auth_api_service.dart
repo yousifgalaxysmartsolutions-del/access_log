@@ -14,4 +14,7 @@ abstract class AuthApiService {
   @POST(ApiEndpoints.refresh)
   @Extra({'public': true})
   Future<ApiResponse> refresh(@Body() RefreshTokenRequest request);
+
+  @POST(ApiEndpoints.getUserProfile)
+  Future<ApiResponse> getUserProfile(@Body() UserProfileRequest request);
 }

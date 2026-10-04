@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../core/di/injection.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/theme/app_tokens.dart';
+import '../../features/requests/data/models/request_models.dart';
+import '../../features/requests/presentation/bloc/request_list_bloc.dart';
 import '../../mock/mock_data.dart';
 import '../../models/models.dart';
 import '../../widgets/app_button.dart';
@@ -10,8 +13,6 @@ import '../../widgets/info_row.dart';
 import '../../widgets/section_card.dart';
 import '../incidents/incident_details_screen.dart';
 
-enum RequestListState { content, loading, empty }
-
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key});
   @override
@@ -19,418 +20,908 @@ class MyRequestsScreen extends StatefulWidget {
 }
 
 class _MyRequestsScreenState extends State<MyRequestsScreen> {
+  RequestListBloc? bloc;
+  @override
+  void initState() {
+    super.initState();
+    if (services.isRegistered<RequestListBloc>()) {
+      bloc = services<RequestListBloc>()
+        ..add(const LoadRequestLookup())
+        ..add(const LoadRequests());
+    }
+  }
+
+  @override
+  void dispose() {
+    bloc?.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => bloc == null
+      ? Center(
+          child: Text(
+            context.tr(
+              'Requests unavailable. Please restart the app.',
+              'الطلبات غير متاحة. يرجى إعادة تشغيل التطبيق.',
+            ),
+          ),
+        )
+      : BlocProvider.value(value: bloc!, child: const _RequestReadView());
+}
+
+bool _activeFilters(RequestListState state) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  return state.fromDate != today ||
+      state.toDate != today ||
+      state.requestTypeId != -1 ||
+      state.requestStatusId != -1 ||
+      state.locationCode.isNotEmpty ||
+      state.incidentNo.isNotEmpty;
+}
+
+String _value(String? value) =>
+    value == null || value.trim().isEmpty ? '-' : value;
+
+class _RequestReadView extends StatefulWidget {
+  const _RequestReadView();
+  @override
+  State<_RequestReadView> createState() => _RequestReadViewState();
+}
+
+class _RequestReadViewState extends State<_RequestReadView> {
   final search = TextEditingController();
-  late final List<MyRequest> requests = List<MyRequest>.of(MockData.myRequests);
-  RelatedRequestType? type;
-  MyRequestStatus? status;
-  RequestListState viewState = RequestListState.content;
+  final scroll = ScrollController();
+  @override
+  void initState() {
+    super.initState();
+    scroll.addListener(_nearBottom);
+  }
+
+  void _nearBottom() {
+    if (!scroll.hasClients || scroll.position.extentAfter > 240) return;
+    final bloc = context.read<RequestListBloc>();
+    final state = bloc.state;
+    if (state.hasMore &&
+        !state.loading &&
+        !state.refreshing &&
+        !state.loadingMore &&
+        state.loadMoreFailure == null) {
+      bloc.add(const LoadMoreRequests());
+    }
+  }
 
   @override
   void dispose() {
     search.dispose();
+    scroll.dispose();
     super.dispose();
   }
 
-  List<MyRequest> get results {
-    final query = search.text.trim().toLowerCase();
-    return requests.where((request) {
-      final matchesSearch =
-          query.isEmpty ||
-          [
-            request.number,
-            request.incidentNumber,
-            request.siteName,
-            request.siteCode,
-            request.createdBy,
-          ].any((value) => value.toLowerCase().contains(query));
-      return matchesSearch &&
-          (type == null || request.type == type) &&
-          (status == null || request.status == status);
-    }).toList();
+  void _apply(RequestListState state, {int? type, int? status}) =>
+      context.read<RequestListBloc>().add(
+        ApplyRequestFilters(
+          fromDate: state.fromDate,
+          toDate: state.toDate,
+          requestTypeId: type ?? state.requestTypeId,
+          requestStatusId: status ?? state.requestStatusId,
+          locationCode: state.locationCode,
+          incidentNo: state.incidentNo,
+        ),
+      );
+  Future<void> _filters() async {
+    final bloc = context.read<RequestListBloc>();
+    final event = await showModalBottomSheet<ApplyRequestFilters>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => BlocProvider.value(
+        value: bloc,
+        child: RequestFilterSheet(initial: bloc.state),
+      ),
+    );
+    if (event != null && mounted) bloc.add(event);
   }
 
-  void _setDecision(MyRequest request, MyRequestStatus next) {
-    final localIndex = requests.indexWhere(
-      (item) => item.number == request.number,
+  Future<void> _refresh() async {
+    final bloc = context.read<RequestListBloc>();
+    final done = bloc.stream
+        .skipWhile((state) => !state.refreshing)
+        .firstWhere((state) => !state.refreshing && !state.loading);
+    bloc.add(const RefreshRequests());
+    await done;
+  }
+
+  Future<void> _decision(
+    RequestListItemDto item,
+    RequestActionKind kind,
+  ) async {
+    final bloc = context.read<RequestListBloc>();
+    if (bloc.state.actingRequestId != null ||
+        !canDecideRequest(item, bloc.state.lookupData)) {
+      return;
+    }
+    final text = await showDialog<String>(
+      context: context,
+      builder: (_) => _RequestDecisionDialog(kind: kind),
     );
-    final centralIndex = MockData.myRequests.indexWhere(
-      (item) => item.number == request.number,
-    );
-    final updated = request.copyWith(status: next);
-    setState(() {
-      if (localIndex >= 0) requests[localIndex] = updated;
-      if (centralIndex >= 0) MockData.myRequests[centralIndex] = updated;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          next == MyRequestStatus.approved
-              ? context.tr(
-                  '${request.number} approved',
-                  'تمت الموافقة على ${request.number}',
-                )
-              : context.tr(
-                  '${request.number} rejected',
-                  'تم رفض ${request.number}',
-                ),
+    if (text == null || !mounted) return;
+    if (kind == RequestActionKind.approve) {
+      bloc.add(ApproveRequest(requestId: item.id!, remark: text));
+    } else {
+      bloc.add(RejectRequest(requestId: item.id!, reason: text));
+    }
+  }
+
+  Widget _retry(
+    String message,
+    String label,
+    VoidCallback action, {
+    Key? key,
+  }) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Column(
+      children: [
+        Text(message),
+        TextButton.icon(
+          key: key,
+          onPressed: action,
+          icon: const Icon(Icons.refresh),
+          label: Text(label),
         ),
-        behavior: SnackBarBehavior.floating,
+      ],
+    ),
+  );
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).scaffoldBackgroundColor,
+    child: BlocConsumer<RequestListBloc, RequestListState>(
+      listenWhen: (previous, current) =>
+          previous.actionRevision != current.actionRevision,
+      listener: (context, state) {
+        final message = state.actionFailure != null
+            ? context.tr(
+                'Unable to complete the request decision. Please try again.',
+                'تعذر تنفيذ القرار على الطلب. يرجى المحاولة مجددًا.',
+              )
+            : state.lastDecision?.requestStatus?.name?.toLowerCase() ==
+                  'approved'
+            ? context.tr(
+                'Request approved successfully',
+                'تمت الموافقة على الطلب بنجاح',
+              )
+            : state.lastDecision?.requestStatus?.name?.toLowerCase() ==
+                  'rejected'
+            ? context.tr('Request rejected successfully', 'تم رفض الطلب بنجاح')
+            : context.tr(
+                'Decision submitted. Updating requests.',
+                'تم إرسال القرار. جارٍ تحديث الطلبات.',
+              );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      },
+      builder: (context, state) {
+        // CAP search is not supported: search only the pages already loaded.
+        final query = search.text.trim().toLowerCase();
+        final items = state.items
+            .where(
+              (item) =>
+                  query.isEmpty ||
+                  [
+                    item.id?.toString(),
+                    item.incidentNo,
+                    item.locationCode,
+                    item.locationName,
+                    item.requestType?.name,
+                    item.requestStatus?.name,
+                    item.createdBy?.name,
+                    item.remark,
+                  ].any(
+                    (value) => value?.toLowerCase().contains(query) ?? false,
+                  ),
+            )
+            .toList();
+        final bloc = context.read<RequestListBloc>();
+        final lookupReady = state.lookupData != null && !state.lookupLoading;
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          color: AppColors.orange,
+          child: CustomScrollView(
+            controller: scroll,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                sliver: SliverList.list(
+                  children: [
+                    Text(
+                      context.tr('My Requests', 'طلباتي'),
+                      style: AppTypography.display,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      context.tr(
+                        'Track requests created from your field incidents.',
+                        'تابع الطلبات التي أنشأتها من البلاغات الميدانية.',
+                      ),
+                      style: AppTypography.body.copyWith(
+                        color: AppColors.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: search,
+                            onChanged: (_) => setState(() {}),
+                            decoration: InputDecoration(
+                              hintText: context.tr(
+                                'Search request, incident, or site',
+                                'ابحث بالطلب أو البلاغ أو الموقع',
+                              ),
+                              prefixIcon: const Icon(Icons.search),
+                              suffixIcon: search.text.isEmpty
+                                  ? null
+                                  : IconButton(
+                                      tooltip: context.tr(
+                                        'Clear search',
+                                        'مسح البحث',
+                                      ),
+                                      icon: const Icon(Icons.close),
+                                      onPressed: () {
+                                        search.clear();
+                                        setState(() {});
+                                      },
+                                    ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 9),
+                        SizedBox(
+                          width: 52,
+                          height: 52,
+                          child: IconButton.filledTonal(
+                            tooltip: context.tr('Filter', 'تصفية'),
+                            onPressed: _filters,
+                            icon: Badge(
+                              isLabelVisible: _activeFilters(state),
+                              child: const Icon(Icons.tune),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      context.tr(
+                        'Search covers loaded requests only.',
+                        'البحث يشمل الطلبات المحمّلة فقط.',
+                      ),
+                      style: AppTypography.meta,
+                    ),
+                    if (state.lookupLoading)
+                      const LinearProgressIndicator(
+                        key: ValueKey('lookup-loading'),
+                      ),
+                    if (state.lookupFailure != null)
+                      _retry(
+                        context.tr(
+                          'Unable to load filter options.',
+                          'تعذر تحميل خيارات التصفية.',
+                        ),
+                        context.tr('Retry filters', 'إعادة تحميل الفلاتر'),
+                        () => bloc.add(const LoadRequestLookup()),
+                      ),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ChoiceChip(
+                            label: Text(context.tr('All', 'الكل')),
+                            selected: state.requestTypeId == -1,
+                            onSelected: lookupReady
+                                ? (_) => _apply(state, type: -1)
+                                : null,
+                          ),
+                          for (final item
+                              in state.lookupData?.requestType ??
+                                  <RequestLookupItemDto>[])
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(
+                                start: 8,
+                              ),
+                              child: ChoiceChip(
+                                label: Text(_value(item.name)),
+                                selected:
+                                    item.id != null &&
+                                    item.id == state.requestTypeId,
+                                onSelected: lookupReady && item.id != null
+                                    ? (_) => _apply(state, type: item.id)
+                                    : null,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<int>(
+                      key: ValueKey(
+                        'status-${state.requestStatusId}-${state.lookupData.hashCode}',
+                      ),
+                      isExpanded: true,
+                      initialValue: state.requestStatusId,
+                      decoration: InputDecoration(
+                        labelText: context.tr('Status', 'الحالة'),
+                      ),
+                      items: _lookupOptions(
+                        context,
+                        state.lookupData?.requestStatus ?? [],
+                        state.requestStatusId,
+                      ),
+                      onChanged: lookupReady
+                          ? (id) => _apply(state, status: id)
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      context.tr(
+                        '${items.length} requests',
+                        '${items.length} طلبات',
+                      ),
+                      style: AppTypography.section,
+                    ),
+                    if (state.failure != null && !state.loading)
+                      _retry(
+                        context.tr(
+                          'Unable to load requests.',
+                          'تعذر تحميل الطلبات.',
+                        ),
+                        context.tr('Retry', 'إعادة المحاولة'),
+                        () => bloc.add(const LoadRequests()),
+                      ),
+                  ],
+                ),
+              ),
+              if (state.loading && state.items.isEmpty)
+                const SliverPadding(
+                  padding: EdgeInsets.all(16),
+                  sliver: SliverToBoxAdapter(child: RequestLoadingSkeleton()),
+                )
+              else if (items.isEmpty && state.failure == null)
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      EmptyState(
+                        icon: Icons.inbox_outlined,
+                        title: state.items.isNotEmpty
+                            ? context.tr(
+                                'No search results',
+                                'لا توجد نتائج بحث',
+                              )
+                            : _activeFilters(state)
+                            ? context.tr(
+                                'No matching requests',
+                                'لا توجد طلبات مطابقة',
+                              )
+                            : context.tr(
+                                'No requests yet',
+                                'لا توجد طلبات بعد',
+                              ),
+                        description: context.tr(
+                          'Try a different search or filter.',
+                          'جرّب بحثًا أو تصفية مختلفة.',
+                        ),
+                      ),
+                      if (state.items.isNotEmpty)
+                        TextButton(
+                          onPressed: () {
+                            search.clear();
+                            setState(() {});
+                          },
+                          child: Text(context.tr('Clear search', 'مسح البحث')),
+                        ),
+                    ],
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  sliver: SliverList.separated(
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (_, index) => RequestCard(
+                      request: items[index],
+                      lookup: state.lookupData,
+                      actionBusy: state.actingRequestId != null,
+                      actingAction: state.actingRequestId == items[index].id
+                          ? state.actingAction
+                          : null,
+                      onApprove: () =>
+                          _decision(items[index], RequestActionKind.approve),
+                      onReject: () =>
+                          _decision(items[index], RequestActionKind.reject),
+                    ),
+                  ),
+                ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: state.loadingMore
+                      ? const Center(
+                          child: CircularProgressIndicator(
+                            key: ValueKey('load-more-loading'),
+                          ),
+                        )
+                      : state.loadMoreFailure != null
+                      ? _retry(
+                          context.tr(
+                            'Unable to load more requests.',
+                            'تعذر تحميل المزيد من الطلبات.',
+                          ),
+                          context.tr('Retry more', 'إعادة تحميل المزيد'),
+                          () => bloc.add(const LoadMoreRequests()),
+                        )
+                      : state.hasMore
+                      ? TextButton(
+                          onPressed: state.loading || state.refreshing
+                              ? null
+                              : () => bloc.add(const LoadMoreRequests()),
+                          child: Text(context.tr('Load more', 'تحميل المزيد')),
+                        )
+                      : const SizedBox(height: 16),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
+
+List<DropdownMenuItem<int>> _lookupOptions(
+  BuildContext context,
+  List<RequestLookupItemDto> items,
+  int selected,
+) {
+  final seen = <int>{-1};
+  return [
+    DropdownMenuItem(value: -1, child: Text(context.tr('All', 'الكل'))),
+    for (final item in items)
+      if (item.id != null && seen.add(item.id!))
+        DropdownMenuItem(value: item.id, child: Text(_value(item.name))),
+    if (!seen.contains(selected))
+      DropdownMenuItem(value: selected, child: Text('$selected')),
+  ];
+}
+
+class RequestFilterSheet extends StatefulWidget {
+  const RequestFilterSheet({super.key, required this.initial});
+  final RequestListState initial;
+  @override
+  State<RequestFilterSheet> createState() => _RequestFilterSheetState();
+}
+
+class _RequestFilterSheetState extends State<RequestFilterSheet> {
+  late DateTime from = widget.initial.fromDate, to = widget.initial.toDate;
+  late int type = widget.initial.requestTypeId,
+      status = widget.initial.requestStatusId;
+  late final location = TextEditingController(
+    text: widget.initial.locationCode,
+  );
+  late final incident = TextEditingController(text: widget.initial.incidentNo);
+  bool invalid = false;
+  @override
+  void dispose() {
+    location.dispose();
+    incident.dispose();
+    super.dispose();
+  }
+
+  Future<void> _date(bool start) async {
+    final now = DateTime.now();
+    final selected = start ? from : to;
+    final value = await showDatePicker(
+      context: context,
+      initialDate: selected,
+      firstDate: DateTime(
+        selected.year < now.year - 20 ? selected.year : now.year - 20,
+      ),
+      lastDate: DateTime(
+        selected.year > now.year + 20 ? selected.year : now.year + 20,
+        12,
+        31,
+      ),
+    );
+    if (value != null && mounted) {
+      setState(() {
+        if (start) {
+          from = value;
+        } else {
+          to = value;
+        }
+      });
+    }
+  }
+
+  void _submit({bool reset = false}) {
+    if (reset) {
+      final now = DateTime.now();
+      from = to = DateTime(now.year, now.month, now.day);
+      type = status = -1;
+      location.clear();
+      incident.clear();
+    }
+    if (from.isAfter(to)) {
+      setState(() => invalid = true);
+      return;
+    }
+    Navigator.pop(
+      context,
+      ApplyRequestFilters(
+        fromDate: from,
+        toDate: to,
+        requestTypeId: type,
+        requestStatusId: status,
+        locationCode: location.text,
+        incidentNo: incident.text,
       ),
     );
   }
 
-  Future<void> _filter() async {
-    final selected = await showModalBottomSheet<MyRequestStatus?>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => _StatusFilterSheet(selected: status),
-    );
-    if (!mounted) return;
-    setState(() => status = selected);
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final items = results;
-    return RefreshIndicator(
-      color: AppColors.orange,
-      onRefresh: () async {
-        setState(() => viewState = RequestListState.loading);
-        await Future<void>.delayed(const Duration(milliseconds: 700));
-        if (mounted) setState(() => viewState = RequestListState.content);
-      },
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-            sliver: SliverList.list(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        context.tr('My Requests', 'طلباتي'),
-                        style: AppTypography.display,
-                      ),
-                    ),
-                    PopupMenuButton<RequestListState>(
-                      tooltip: context.tr('Preview state', 'معاينة الحالة'),
-                      onSelected: (value) => setState(() => viewState = value),
-                      itemBuilder: (_) => [
-                        PopupMenuItem(
-                          value: RequestListState.content,
-                          child: Text(context.tr('Content', '[المحتوى')),
-                        ),
-                        PopupMenuItem(
-                          value: RequestListState.loading,
-                          child: Text(
-                            context.tr('Loading skeleton', 'هيكل التحميل'),
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: RequestListState.empty,
-                          child: Text(context.tr('Empty state', 'حالة فارغة')),
-                        ),
-                      ],
-                      icon: const Icon(Icons.science_outlined),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  context.tr(
-                    'Track requests created from your field incidents.',
-                    'تابع الطلبات التي أنشأتها من البلاغات الميدانية.',
+  Widget build(BuildContext context) => SafeArea(
+    child: Material(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          16 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: BlocBuilder<RequestListBloc, RequestListState>(
+            builder: (context, state) {
+              final ready = state.lookupData != null && !state.lookupLoading;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    context.tr('Filter requests', 'تصفية الطلبات'),
+                    style: AppTypography.title,
                   ),
-                  style: AppTypography.body.copyWith(color: AppColors.muted),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: search,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          hintText: context.tr(
-                            'Search request, incident, or site',
-                            'ابحث بالطلب أو البلاغ أو الموقع',
-                          ),
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: search.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  onPressed: () {
-                                    search.clear();
-                                    setState(() {});
-                                  },
-                                  icon: const Icon(Icons.close),
-                                ),
-                        ),
+                  const SizedBox(height: 12),
+                  if (state.lookupLoading) const LinearProgressIndicator(),
+                  if (state.lookupFailure != null)
+                    TextButton(
+                      onPressed: () => context.read<RequestListBloc>().add(
+                        const LoadRequestLookup(),
+                      ),
+                      child: Text(
+                        context.tr('Retry filters', 'إعادة تحميل الفلاتر'),
                       ),
                     ),
-                    const SizedBox(width: 9),
-                    SizedBox(
-                      width: 52,
-                      height: 52,
-                      child: IconButton.filledTonal(
-                        tooltip: context.tr('Filter', 'تصفية'),
-                        onPressed: _filter,
-                        icon: Badge(
-                          isLabelVisible: status != null,
-                          smallSize: 7,
-                          backgroundColor: AppColors.orange,
-                          child: const Icon(Icons.tune),
-                        ),
+                  OutlinedButton(
+                    key: const ValueKey('from-date'),
+                    onPressed: () => _date(true),
+                    child: Text(
+                      '${context.tr('From Date', 'من تاريخ')}: ${MaterialLocalizations.of(context).formatCompactDate(from)}',
+                    ),
+                  ),
+                  OutlinedButton(
+                    key: const ValueKey('to-date'),
+                    onPressed: () => _date(false),
+                    child: Text(
+                      '${context.tr('To Date', 'إلى تاريخ')}: ${MaterialLocalizations.of(context).formatCompactDate(to)}',
+                    ),
+                  ),
+                  if (invalid)
+                    Text(
+                      context.tr(
+                        'Start date must be on or before end date.',
+                        'تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.',
+                      ),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
+                  DropdownButtonFormField<int>(
+                    key: ValueKey('filter-type-${state.lookupData.hashCode}'),
+                    initialValue: type,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: context.tr('Request Type', 'نوع الطلب'),
+                    ),
+                    items: _lookupOptions(
+                      context,
+                      state.lookupData?.requestType ?? [],
+                      type,
+                    ),
+                    onChanged: ready
+                        ? (value) => setState(() => type = value!)
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    key: ValueKey('filter-status-${state.lookupData.hashCode}'),
+                    initialValue: status,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: context.tr('Request Status', 'حالة الطلب'),
+                    ),
+                    items: _lookupOptions(
+                      context,
+                      state.lookupData?.requestStatus ?? [],
+                      status,
+                    ),
+                    onChanged: ready
+                        ? (value) => setState(() => status = value!)
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: location,
+                    decoration: InputDecoration(
+                      labelText: context.tr('Location Code', 'كود الموقع'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: incident,
+                    decoration: InputDecoration(
+                      labelText: context.tr('Incident Number', 'رقم البلاغ'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
                     children: [
-                      _TypeChip(
-                        label: context.tr('All', 'الكل'),
-                        selected: type == null,
-                        onTap: () => setState(() => type = null),
+                      OutlinedButton(
+                        onPressed: () => _submit(reset: true),
+                        child: Text(context.tr('Reset', 'إعادة ضبط')),
                       ),
-                      ...RelatedRequestType.values.map(
-                        (value) => _TypeChip(
-                          label: _typeLabel(context, value),
-                          selected: type == value,
-                          onTap: () => setState(() => type = value),
+                      FilledButton(
+                        onPressed: _submit,
+                        child: Text(
+                          context.tr('Apply Filters', 'تطبيق الفلاتر'),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        context.strings.isArabic
-                            ? '${items.length} طلبات'
-                            : '${items.length} requests',
-                        style: AppTypography.section,
-                      ),
-                    ),
-                    if (status != null)
-                      InputChip(
-                        label: Text(_statusLabel(context, status!)),
-                        onDeleted: () => setState(() => status = null),
-                      ),
-                  ],
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
-          if (viewState == RequestListState.loading)
-            const SliverPadding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, 30),
-              sliver: SliverToBoxAdapter(child: RequestLoadingSkeleton()),
-            )
-          else if (viewState == RequestListState.empty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: EmptyState(
-                icon: Icons.inbox_outlined,
-                title: context.tr('No requests yet', 'لا توجد طلبات بعد'),
-                description: context.tr(
-                  'Requests created from active incidents will appear here.',
-                  'ستظهر هنا الطلبات المنشأة من البلاغات النشطة.',
-                ),
-              ),
-            )
-          else if (items.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: EmptyState(
-                icon: Icons.search_off,
-                title: context.tr('No search results', 'لا توجد نتائج بحث'),
-                description: context.tr(
-                  'Try another term or clear the active filters.',
-                  'جرّب عبارة أخرى أو امسح عوامل التصفية.',
-                ),
-                actionLabel: context.tr('Clear filters', 'مسح الفلاتر'),
-                onAction: () => setState(() {
-                  search.clear();
-                  type = null;
-                  status = null;
-                }),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 30),
-              sliver: SliverList.separated(
-                itemCount: items.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, index) => RequestCard(
-                  request: items[index],
-                  onApprove: () =>
-                      _setDecision(items[index], MyRequestStatus.approved),
-                  onReject: () =>
-                      _setDecision(items[index], MyRequestStatus.rejected),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          RequestDetailsScreen(request: items[index]),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class RequestCard extends StatelessWidget {
   const RequestCard({
     super.key,
     required this.request,
-    required this.onTap,
-    required this.onApprove,
-    required this.onReject,
+    this.lookup,
+    this.onApprove,
+    this.onReject,
+    this.actionBusy = false,
+    this.actingAction,
   });
-  final MyRequest request;
-  final VoidCallback onTap;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
-
+  final RequestListItemDto request;
+  final RequestLookupData? lookup;
+  final VoidCallback? onApprove, onReject;
+  final bool actionBusy;
+  final RequestActionKind? actingAction;
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(request.status);
+    final type = lookup?.requestType
+        .where((item) => item.id != null && item.id == request.requestType?.id)
+        .firstOrNull;
+    final code = (type?.code ?? request.requestType?.name ?? '').toLowerCase();
+    final icon = code.contains('intervention')
+        ? Icons.build_circle_outlined
+        : code.contains('renewal')
+        ? Icons.autorenew
+        : code.contains('departure')
+        ? Icons.logout
+        : Icons.description_outlined;
+    final statusLookup = lookup?.requestStatus
+        .where(
+          (item) => item.id != null && item.id == request.requestStatus?.id,
+        )
+        .firstOrNull;
+    final status = (statusLookup?.code ?? request.requestStatus?.name)
+        ?.toLowerCase();
+    final typeColor = code.contains('renewal')
+        ? AppColors.info
+        : code.contains('departure')
+        ? AppColors.success
+        : code.contains('intervention')
+        ? AppColors.orange
+        : AppColors.muted;
+    final color = switch (status) {
+      'pending' => AppColors.warning,
+      'approved' => AppColors.info,
+      'rejected' => AppColors.error,
+      _ => AppColors.muted,
+    };
     return Card(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: _typeColor(request.type).withValues(alpha: .1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      _typeIcon(request.type),
-                      color: _typeColor(request.type),
-                      size: 21,
-                    ),
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: typeColor.withValues(alpha: .1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(request.number, style: AppTypography.section),
-                        const SizedBox(height: 2),
-                        Text(
-                          _typeLabel(context, request.type),
-                          style: AppTypography.meta.copyWith(
-                            color: AppColors.muted,
-                          ),
+                  child: Icon(icon, color: typeColor),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.tr(
+                          'Request #${request.id ?? '-'}',
+                          'طلب #${request.id ?? '-'}',
                         ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: .1),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Text(
-                      _statusLabel(context, request.status),
-                      style: AppTypography.meta.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w700,
+                        style: AppTypography.section,
                       ),
-                    ),
+                      Text(
+                        _value(request.requestType?.name),
+                        style: AppTypography.meta,
+                      ),
+                    ],
                   ),
-                ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: .1),
+                borderRadius: BorderRadius.circular(7),
               ),
-              const Divider(height: 27),
-              _CardMeta(
-                icon: Icons.assignment_outlined,
-                value: request.incidentNumber,
+              child: Text(
+                _value(request.requestStatus?.name),
+                style: AppTypography.meta.copyWith(color: color),
               ),
-              const SizedBox(height: 7),
-              _CardMeta(
-                icon: Icons.cell_tower,
-                value: '${request.siteName} • ${request.siteCode}',
-              ),
-              const SizedBox(height: 7),
-              Row(
-                children: [
-                  Expanded(
-                    child: _CardMeta(
-                      icon: Icons.event_outlined,
-                      value: _formatDate(request.createdDate),
-                    ),
-                  ),
-                  Icon(
-                    Directionality.of(context) == TextDirection.rtl
-                        ? Icons.chevron_left
-                        : Icons.chevron_right,
-                    color: AppColors.muted,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 7),
-              _CardMeta(icon: Icons.person_outline, value: request.createdBy),
+            ),
+            const Divider(height: 27),
+            _CardMeta(
+              icon: Icons.assignment_outlined,
+              value: _value(request.incidentNo),
+            ),
+            const SizedBox(height: 7),
+            _CardMeta(
+              icon: Icons.cell_tower,
+              value:
+                  '${_value(request.locationName)} • ${_value(request.locationCode)}',
+            ),
+            const SizedBox(height: 7),
+            _CardMeta(
+              icon: Icons.event_outlined,
+              value: formatCapApiDate(request.createdDate),
+            ),
+            const SizedBox(height: 7),
+            _CardMeta(
+              icon: Icons.person_outline,
+              value: _value(request.createdBy?.name),
+            ),
+            const SizedBox(height: 7),
+            _CardMeta(icon: Icons.notes, value: _value(request.remark)),
+            if (canDecideRequest(request, lookup)) ...[
               const Divider(height: 27),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: request.status == MyRequestStatus.rejected
-                          ? null
-                          : onReject,
-                      icon: const Icon(Icons.close_rounded),
+                      onPressed: actionBusy ? null : onReject,
+                      icon: actingAction == RequestActionKind.reject
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                key: ValueKey('decision-${request.id}'),
+                              ),
+                            )
+                          : const Icon(Icons.close_rounded),
                       label: Text(context.tr('Reject', 'رفض')),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.error,
-                        minimumSize: const Size(0, 48),
-                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: request.status == MyRequestStatus.approved
-                          ? null
-                          : onApprove,
-                      icon: const Icon(Icons.check_rounded),
+                      onPressed: actionBusy ? null : onApprove,
+                      icon: actingAction == RequestActionKind.approve
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                key: ValueKey('decision-${request.id}'),
+                              ),
+                            )
+                          : const Icon(Icons.check_rounded),
                       label: Text(context.tr('Approve', 'موافقة')),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.success,
-                        minimumSize: const Size(0, 48),
-                      ),
                     ),
                   ),
                 ],
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestDecisionDialog extends StatefulWidget {
+  const _RequestDecisionDialog({required this.kind});
+  final RequestActionKind kind;
+  @override
+  State<_RequestDecisionDialog> createState() => _RequestDecisionDialogState();
+}
+
+class _RequestDecisionDialogState extends State<_RequestDecisionDialog> {
+  final controller = TextEditingController();
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final approve = widget.kind == RequestActionKind.approve;
+    return AlertDialog(
+      title: Text(
+        approve
+            ? context.tr('Approve Request', 'الموافقة على الطلب')
+            : context.tr('Reject Request', 'رفض الطلب'),
+      ),
+      content: SingleChildScrollView(
+        child: TextField(
+          controller: controller,
+          minLines: 2,
+          maxLines: 4,
+          decoration: InputDecoration(
+            labelText: approve
+                ? context.tr('Remark', 'ملاحظة')
+                : context.tr('Reason', 'سبب الرفض'),
+            helperText: context.tr('Optional', 'اختياري'),
           ),
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(context.tr('Cancel', 'إلغاء')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, controller.text.trim()),
+          child: Text(
+            approve
+                ? context.tr('Approve', 'موافقة')
+                : context.tr('Reject', 'رفض'),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -828,66 +1319,6 @@ class _RequestHeader extends StatelessWidget {
   );
 }
 
-class _TypeChip extends StatelessWidget {
-  const _TypeChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsetsDirectional.only(end: 8),
-    child: ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onTap(),
-    ),
-  );
-}
-
-class _StatusFilterSheet extends StatelessWidget {
-  const _StatusFilterSheet({required this.selected});
-  final MyRequestStatus? selected;
-  @override
-  Widget build(BuildContext context) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            context.tr('Filter by status', 'تصفية حسب الحالة'),
-            style: AppTypography.title,
-          ),
-          const SizedBox(height: 15),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: MyRequestStatus.values
-                .map(
-                  (value) => ChoiceChip(
-                    label: Text(_statusLabel(context, value)),
-                    selected: selected == value,
-                    onSelected: (_) => Navigator.pop(context, value),
-                  ),
-                )
-                .toList(),
-          ),
-          const SizedBox(height: 18),
-          OutlinedButton(
-            onPressed: () => Navigator.pop(context, null),
-            child: Text(context.tr('Clear status filter', 'مسح تصفية الحالة')),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class RequestLoadingSkeleton extends StatelessWidget {
   const RequestLoadingSkeleton({super.key});
   @override
@@ -1006,5 +1437,4 @@ String _statusLabel(BuildContext context, MyRequestStatus status) =>
       MyRequestStatus.completed => context.tr('Completed', 'مكتمل'),
     };
 
-String _formatDate(DateTime date) =>
-    '${date.day.toString().padLeft(2, '0')} Aug 2026 • ${(date.hour > 12 ? date.hour - 12 : date.hour).toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')} ${date.hour >= 12 ? 'PM' : 'AM'}';
+String _formatDate(DateTime date) => formatCapApiDate(date.toIso8601String());

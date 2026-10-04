@@ -31,7 +31,38 @@ class CapRequest<T> {
     required this.appVersion,
     required this.deviceType,
     required this.data,
-  });
+  }) : _includeData = true;
+
+  const CapRequest._metadataOnly({
+    required this.userId,
+    required this.deviceIdentifier,
+    required this.deviceToken,
+    required this.osVersion,
+    required this.appVersion,
+    required this.deviceType,
+    required this.data,
+  }) : _includeData = false;
+
+  /// Explicit opt-in for CAP endpoints whose contract has metadata only.
+  /// Ordinary requests, including `data: null`, keep their existing JSON.
+  static CapRequest<Null> metadataOnly({
+    required int userId,
+    required String deviceIdentifier,
+    required String deviceToken,
+    required String osVersion,
+    required String appVersion,
+    required String deviceType,
+  }) => CapRequest<Null>._metadataOnly(
+    userId: userId,
+    deviceIdentifier: deviceIdentifier,
+    deviceToken: deviceToken,
+    osVersion: osVersion,
+    appVersion: appVersion,
+    deviceType: deviceType,
+    data: null,
+  );
+
+  final bool _includeData;
 
   /// The authenticated CAP user id (`User_PK_ID` from the login response).
   final int userId;
@@ -57,7 +88,7 @@ class CapRequest<T> {
     'osversion': osVersion,
     'AppVersion': appVersion,
     'devicetype': deviceType,
-    'data': _encode(data),
+    if (_includeData) 'data': _encode(data),
   };
 }
 

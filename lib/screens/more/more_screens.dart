@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
+import '../../core/di/injection.dart';
 import '../../core/localization/app_strings.dart';
+import '../../core/network/result.dart';
 import '../../core/routes/app_routes.dart';
+import '../../core/session/session_manager.dart';
 import '../../core/theme/app_tokens.dart';
+import '../../features/authentication/data/models/auth_models.dart';
+import '../../features/authentication/domain/usecases/get_user_profile_use_case.dart';
 import '../../mock/mock_data.dart';
 import '../../models/models.dart';
 import '../../widgets/session_timeout_ui.dart';
@@ -304,145 +309,190 @@ class MessageDetailsScreen extends StatelessWidget {
   );
 }
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  late final Future<Result<UserProfile>> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final userId = services<SessionManager>().userId;
+    _profileFuture = services<GetUserProfileUseCase>().call(userId);
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: Text(context.tr('Profile', 'الملف الشخصي'))),
-    body: ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: AppColors.ink,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            children: [
-              CircleAvatar(
-                radius: 43,
-                backgroundColor: AppColors.orange,
-                child: Text(
-                  MockData.engineer.initials,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 23,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                MockData.engineer.name,
-                style: AppTypography.title.copyWith(color: Colors.white),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                context.tr('Senior Field Engineer', 'مهندس ميداني أول'),
-                style: AppTypography.body.copyWith(color: Colors.white60),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.success.withValues(alpha: .2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  context.tr('ACTIVE EMPLOYEE', 'موظف نشط'),
-                  style: AppTypography.meta.copyWith(
-                    color: AppColors.success,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(15),
-            child: Column(
-              children: [
-                _ProfileInfo(
-                  icon: Icons.business_outlined,
-                  label: context.tr('Company', 'الشركة'),
-                  value: MockData.companyName,
-                ),
-                _ProfileInfo(
-                  icon: Icons.public,
-                  label: context.tr('Region', 'الإقليم'),
-                  value: context.tr(MockData.regionName, 'القاهرة'),
-                ),
-                _ProfileInfo(
-                  icon: Icons.groups_outlined,
-                  label: context.tr('Team', 'الفريق'),
-                  value: MockData.teamName,
-                ),
-                _ProfileInfo(
-                  icon: Icons.phone_outlined,
-                  label: context.tr('Mobile Number', 'رقم الهاتف'),
-                  value: MockData.mobileNumber,
-                ),
-                _ProfileInfo(
-                  icon: Icons.email_outlined,
-                  label: context.tr('Email', 'البريد الإلكتروني'),
-                  value: MockData.email,
-                ),
-              ],
+    body: FutureBuilder<Result<UserProfile>>(
+      future: _profileFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError || snapshot.data is FailureResult) {
+          return Center(
+            child: Text(
+              context.tr('Failed to load profile', 'فشل تحميل الملف الشخصي'),
             ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Card(
-          child: Column(
-            children: [
-              _MenuTile(
-                icon: Icons.lock_reset,
-                title: context.tr('Change Password', 'تغيير كلمة المرور'),
-                onTap: () =>
-                    Navigator.pushNamed(context, AppRoutes.newPassword),
+          );
+        }
+
+        final profile = (snapshot.data as Success<UserProfile>).data;
+        final bool hasImage = profile.userImageUrl.isNotEmpty;
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.ink,
+                borderRadius: BorderRadius.circular(18),
               ),
-              const Divider(height: 1, indent: 62),
-              _MenuTile(
-                icon: Icons.language,
-                title: context.tr('Change Language', 'تغيير اللغة'),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ChangeLanguageScreen(),
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 43,
+                    backgroundColor: AppColors.orange,
+                    backgroundImage: hasImage
+                        ? NetworkImage(profile.userImageUrl)
+                        : null,
+                    child: !hasImage
+                        ? Text(
+                            profile.userName.isNotEmpty
+                                ? profile.userName.substring(0, 1).toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 23,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          )
+                        : null,
                   ),
+                  const SizedBox(height: 14),
+                  Text(
+                    profile.fullName ?? profile.userName,
+                    style: AppTypography.title.copyWith(color: Colors.white),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    context.strings.isArabic
+                        ? profile.userTypeAr
+                        : profile.userTypeEn,
+                    style: AppTypography.body.copyWith(color: Colors.white60),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: .2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      context.tr('ACTIVE EMPLOYEE', 'موظف نشط'),
+                      style: AppTypography.meta.copyWith(
+                        color: AppColors.success,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(15),
+                child: Column(
+                  children: [
+                    _ProfileInfo(
+                      icon: Icons.business_outlined,
+                      label: context.tr('Company', 'الشركة'),
+                      value: MockData.companyName,
+                    ),
+                    _ProfileInfo(
+                      icon: Icons.public,
+                      label: context.tr('Region', 'الإقليم'),
+                      value: profile.userRegion,
+                    ),
+                    _ProfileInfo(
+                      icon: Icons.groups_outlined,
+                      label: context.tr('Team', 'الفريق'),
+                      value: profile
+                          .userTypeEn, // Using type as a fallback for team
+                    ),
+                    _ProfileInfo(
+                      icon: Icons.phone_outlined,
+                      label: context.tr('Mobile Number', 'رقم الهاتف'),
+                      value: profile.phoneNumber,
+                    ),
+                    _ProfileInfo(
+                      icon: Icons.email_outlined,
+                      label: context.tr('Email', 'البريد الإلكتروني'),
+                      value: profile.email ?? 'N/A',
+                    ),
+                  ],
                 ),
               ),
-              const Divider(height: 1, indent: 62),
-              _MenuTile(
-                icon: Icons.phonelink_lock_outlined,
-                title: context.tr('Registered Device', 'الجهاز المسجل'),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const RegisteredDeviceScreen(),
+            ),
+            const SizedBox(height: 14),
+            Card(
+              child: Column(
+                children: [
+                  _MenuTile(
+                    icon: Icons.lock_reset,
+                    title: context.tr('Change Password', 'تغيير كلمة المرور'),
+                    onTap: () =>
+                        Navigator.pushNamed(context, AppRoutes.newPassword),
                   ),
-                ),
+                  const Divider(height: 1, indent: 62),
+                  _MenuTile(
+                    icon: Icons.language,
+                    title: context.tr('Change Language', 'تغيير اللغة'),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const ChangeLanguageScreen(),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1, indent: 62),
+                  _MenuTile(
+                    icon: Icons.phonelink_lock_outlined,
+                    title: context.tr('Registered Device', 'الجهاز المسجل'),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const RegisteredDeviceScreen(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        Card(
-          child: _MenuTile(
-            icon: Icons.logout,
-            title: context.tr('Logout', 'تسجيل الخروج'),
-            destructive: true,
-            onTap: () => _logout(context),
-          ),
-        ),
-      ],
+            ),
+            const SizedBox(height: 14),
+            Card(
+              child: _MenuTile(
+                icon: Icons.logout,
+                title: context.tr('Logout', 'تسجيل الخروج'),
+                destructive: true,
+                onTap: () => _logout(context),
+              ),
+            ),
+          ],
+        );
+      },
     ),
   );
 }
