@@ -51,11 +51,13 @@ void main() {
   }
 
   testWidgets(
-    'tab return reloads the selected date range and preserves search',
+    'tab return clears filters and search and displays fresh default-day results',
     (tester) async {
       final filter = IncidentListFilter(
         from: DateTime(2026, 9, 1),
         to: DateTime(2026, 9, 3),
+        status: CapIncidentStatus.inProcess,
+        priority: Priority.low,
       );
       Widget page(bool active) => MaterialApp(
         home: Scaffold(
@@ -68,13 +70,24 @@ void main() {
       await tester.pumpWidget(page(false));
       await tester.pump();
       expect(repo.calls, hasLength(1));
+      repo.result = Success([
+        apiIncident(99, status: 'Pending', priority: 'High'),
+      ]);
       await tester.pumpWidget(page(true));
       await tester.pump();
       expect(repo.calls, hasLength(2));
-      expect(repo.calls.last, repo.calls.first);
+      final today = IncidentListBloc.dayOnly(DateTime.now());
+      expect(repo.calls.last, (today, today));
       expect(
         tester.widget<TextField>(find.byType(TextField).first).controller!.text,
-        'Power',
+        '',
+      );
+      expect(
+        tester
+            .widget<CapIncidentCard>(find.byType(CapIncidentCard))
+            .incident
+            .incidentId,
+        99,
       );
       await tester.pumpWidget(page(true));
       await tester.pump();

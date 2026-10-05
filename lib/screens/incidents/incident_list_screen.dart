@@ -53,7 +53,11 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
       _refreshLookup();
-      unawaited(bloc.load(bloc.state.from, bloc.state.to));
+      filter = const IncidentListFilter();
+      searchController.clear();
+      sort = IncidentSort.newest;
+      final (from, to) = IncidentListBloc.range(filter);
+      unawaited(bloc.load(from, to));
     }
   }
 

@@ -22,6 +22,7 @@ class MyRequestsScreen extends StatefulWidget {
 
 class _MyRequestsScreenState extends State<MyRequestsScreen> {
   RequestListBloc? bloc;
+  int _viewRevision = 0;
   @override
   void initState() {
     super.initState();
@@ -36,7 +37,19 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
   void didUpdateWidget(MyRequestsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
-      bloc?.add(const RefreshRequests());
+      _viewRevision++;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      bloc?.add(
+        ApplyRequestFilters(
+          fromDate: today,
+          toDate: today,
+          requestTypeId: -1,
+          requestStatusId: -1,
+          locationCode: '',
+          incidentNo: '',
+        ),
+      );
     }
   }
 
@@ -56,7 +69,10 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
             ),
           ),
         )
-      : BlocProvider.value(value: bloc!, child: const _RequestReadView());
+      : BlocProvider.value(
+          value: bloc!,
+          child: _RequestReadView(key: ValueKey(_viewRevision)),
+        );
 }
 
 bool _activeFilters(RequestListState state) {
@@ -74,7 +90,7 @@ String _value(String? value) =>
     value == null || value.trim().isEmpty ? '-' : value;
 
 class _RequestReadView extends StatefulWidget {
-  const _RequestReadView();
+  const _RequestReadView({super.key});
   @override
   State<_RequestReadView> createState() => _RequestReadViewState();
 }

@@ -21,8 +21,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
     required DateTime forMonth,
   }) async {
     final envelope = await _context.wrap(
-      // DashboardStatsRequestData(month: forMonth.month, year: forMonth.year),
-      DashboardStatsRequestData(month: 9, year: forMonth.year),
+      DashboardStatsRequestData(month: forMonth.month, year: forMonth.year),
       authenticationMessage: 'Sign in again to load dashboard statistics',
     );
     return switch (envelope) {

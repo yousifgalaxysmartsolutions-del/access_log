@@ -69,7 +69,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('tab return refreshes requests without recreating search state', (
+  testWidgets('tab return resets request filters and clears search', (
     tester,
   ) async {
     Widget page(bool active) => MaterialApp(
@@ -79,12 +79,22 @@ void main() {
     await tester.pump();
     await tester.enterText(find.byType(TextField).first, 'retained query');
     await tester.pumpWidget(page(false));
-    expect(bloc.events.whereType<RefreshRequests>(), isEmpty);
+    expect(bloc.events.whereType<ApplyRequestFilters>(), isEmpty);
     await tester.pumpWidget(page(true));
-    expect(bloc.events.whereType<RefreshRequests>(), hasLength(1));
-    expect(find.text('retained query'), findsOneWidget);
+    final event = bloc.events.whereType<ApplyRequestFilters>().single;
+    final now = DateTime.now();
+    expect(event.fromDate, DateTime(now.year, now.month, now.day));
+    expect(event.toDate, event.fromDate);
+    expect(event.requestTypeId, -1);
+    expect(event.requestStatusId, -1);
+    expect(event.locationCode, '');
+    expect(event.incidentNo, '');
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      '',
+    );
     await tester.pumpWidget(page(true));
-    expect(bloc.events.whereType<RefreshRequests>(), hasLength(1));
+    expect(bloc.events.whereType<ApplyRequestFilters>(), hasLength(1));
     expect(bloc.events.whereType<LoadRequests>(), hasLength(1));
   });
 
