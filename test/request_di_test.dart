@@ -20,8 +20,16 @@ import 'package:access_log_plus/features/requests/domain/usecases/reject_request
 
 class _Storage implements TokenStorage, SessionUserStorage {
   @override
-  Future<SessionTokens?> readTokens() async =>
-      const SessionTokens('test-access', 'test-refresh');
+  Future<SessionTokens?> readTokens() async => SessionTokens(
+    'test-access',
+    'test-refresh',
+    accessTokenExpiresAtUtc: DateTime.now().toUtc().add(
+      const Duration(hours: 1),
+    ),
+    refreshTokenExpiresAtUtc: DateTime.now().toUtc().add(
+      const Duration(days: 7),
+    ),
+  );
   @override
   Future<SessionUser?> readUser() async => const SessionUser(id: '4089');
   @override

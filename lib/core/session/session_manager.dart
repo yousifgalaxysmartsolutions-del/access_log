@@ -22,6 +22,57 @@ class SessionManager {
   bool _remember = true;
   Future<void> _writes = Future.value();
   bool get isAuthenticated => status == SessionStatus.authenticated;
+  DateTime Function() now = DateTime.now;
+  Future<void>? _refreshing;
+  int? _refreshEpoch;
+  Future<void>? _restoring;
+
+  Future<void> ensureFresh(
+    Future<SessionTokens> Function(String) refresh, {
+    bool force = false,
+  }) async {
+    final epoch = generation;
+    if (_refreshEpoch == epoch && _refreshing != null) return _refreshing!;
+    if (!isAuthenticated || tokens == null) {
+      throw const FormatException('No session');
+    }
+    if (!force && !tokens!.needsRefresh(now())) return;
+    _refreshEpoch = epoch;
+    final running = _refreshing = _refresh(refresh, epoch);
+    try {
+      await running;
+    } finally {
+      if (identical(_refreshing, running)) {
+        _refreshing = null;
+        _refreshEpoch = null;
+      }
+    }
+  }
+
+  Future<void> _refresh(
+    Future<SessionTokens> Function(String) refresh,
+    int epoch,
+  ) async {
+    try {
+      final current = tokens!;
+      if (!current.canRefresh(now())) {
+        throw const FormatException('Refresh unavailable');
+      }
+      final value = await refresh(current.refreshToken);
+      if (!value.canRefresh(now()) ||
+          value.accessToken.trim().isEmpty ||
+          value.accessTokenExpiresAtUtc == null ||
+          !value.accessTokenExpiresAtUtc!.isAfter(now().toUtc())) {
+        throw const FormatException('Invalid refreshed credentials');
+      }
+      if (!await rotate(value, epoch)) {
+        throw const FormatException('Session changed');
+      }
+    } catch (_) {
+      if (epoch == generation) await logout(expired: true);
+      rethrow;
+    }
+  }
 
   Future<void> _serialize(Future<void> Function() action) {
     final next = _writes.then((_) => action());
@@ -29,12 +80,48 @@ class SessionManager {
     return next;
   }
 
-  Future<void> restore() async {
-    tokens = await storage.readTokens();
-    user = await users?.readUser();
-    status = tokens == null
-        ? SessionStatus.signedOut
-        : SessionStatus.authenticated;
+  Future<void> restore({
+    Future<SessionTokens> Function(String)? refresh,
+  }) async {
+    final running = _restoring ??= _restore(refresh);
+    try {
+      await running;
+    } finally {
+      if (identical(_restoring, running)) _restoring = null;
+    }
+  }
+
+  Future<void> _restore(Future<SessionTokens> Function(String)? refresh) async {
+    final epoch = generation;
+    try {
+      var value = await storage.readTokens();
+      final identity = await users?.readUser();
+      if (epoch != generation) return;
+      if (value == null || !value.canRefresh(now())) {
+        await logout();
+        return;
+      }
+      if (value.needsRefresh(now())) {
+        if (refresh == null) throw const FormatException('Refresh unavailable');
+        value = await refresh(value.refreshToken);
+        if (!value.canRefresh(now()) ||
+            value.accessToken.trim().isEmpty ||
+            value.accessTokenExpiresAtUtc == null ||
+            !value.accessTokenExpiresAtUtc!.isAfter(now().toUtc())) {
+          throw const FormatException('Invalid restored credentials');
+        }
+      }
+      final restored = value;
+      await _serialize(() async {
+        if (epoch == generation) await storage.writeTokens(restored);
+      });
+      if (epoch != generation) return;
+      tokens = restored;
+      user = identity;
+      status = SessionStatus.authenticated;
+    } catch (_) {
+      if (epoch == generation) await logout(expired: true);
+    }
   }
 
   Future<void> signIn(

@@ -3,6 +3,7 @@ import 'package:retrofit/retrofit.dart';
 import '../../../../core/network/api_endpoints.dart';
 import '../models/auth_models.dart';
 import '../../../../core/network/api_response.dart';
+import '../../../../core/network/cap/cap_request.dart';
 part 'auth_api_service.g.dart';
 
 @RestApi()
@@ -13,7 +14,9 @@ abstract class AuthApiService {
   Future<ApiResponse> login(@Body() LoginRequest request);
   @POST(ApiEndpoints.refresh)
   @Extra({'public': true})
-  Future<ApiResponse> refresh(@Body() RefreshTokenRequest request);
+  Future<ApiResponse> refresh(
+    @Body() CapRequest<RefreshTokenRequestData> request,
+  );
 
   @POST(ApiEndpoints.getUserProfile)
   Future<ApiResponse> getUserProfile(@Body() UserProfileRequest request);

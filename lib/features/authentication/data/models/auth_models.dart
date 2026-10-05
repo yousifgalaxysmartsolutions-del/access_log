@@ -1,3 +1,62 @@
+import 'package:json_annotation/json_annotation.dart';
+import '../../../../core/network/cap/cap_request.dart';
+part 'auth_models.g.dart';
+
+@JsonSerializable(createToJson: false)
+class LoginTokenData {
+  const LoginTokenData({
+    this.id,
+    this.name,
+    this.mobileEnable,
+    this.mobileActive,
+    this.accessToken,
+    this.refreshToken,
+    this.lifetime,
+    this.refreshExpiry,
+  });
+  @JsonKey(name: 'User_PK_ID')
+  final int? id;
+  @JsonKey(name: 'User_Name')
+  final String? name;
+  @JsonKey(name: 'User_MobileEnable')
+  final bool? mobileEnable;
+  @JsonKey(name: 'User_MobileActivationState')
+  final bool? mobileActive;
+  @JsonKey(name: 'AccessToken')
+  final String? accessToken;
+  @JsonKey(name: 'RefreshToken')
+  final String? refreshToken;
+  @JsonKey(name: 'AccessTokenExpiresInSeconds')
+  final int? lifetime;
+  @JsonKey(name: 'RefreshTokenExpiresAtUtc')
+  final String? refreshExpiry;
+  factory LoginTokenData.fromJson(Map<String, dynamic> json) =>
+      _$LoginTokenDataFromJson(json);
+}
+
+@JsonSerializable(createToJson: false)
+class RefreshTokenData {
+  const RefreshTokenData({
+    this.accessToken,
+    this.refreshToken,
+    this.accessTokenExpiresInSeconds,
+    this.refreshTokenExpiresAtUtc,
+  });
+  final String? accessToken, refreshToken, refreshTokenExpiresAtUtc;
+  final int? accessTokenExpiresInSeconds;
+  factory RefreshTokenData.fromJson(Map<String, dynamic> json) =>
+      _$RefreshTokenDataFromJson(json);
+}
+
+@JsonSerializable(createFactory: false)
+class RefreshTokenRequestData implements CapPayload {
+  const RefreshTokenRequestData(this.refreshToken);
+  @JsonKey(name: 'RefreshToken')
+  final String refreshToken;
+  @override
+  Map<String, dynamic> toJson() => _$RefreshTokenRequestDataToJson(this);
+}
+
 class AuthUser {
   const AuthUser({required this.id, required this.name});
   final String id, name;
@@ -114,34 +173,5 @@ class LoginRequest {
     ),
     'lang': const String.fromEnvironment('CAP_LANGUAGE', defaultValue: 'en'),
     'data': {'UserName': username, 'Password': password},
-  };
-}
-
-class RefreshTokenRequest {
-  const RefreshTokenRequest(this.refreshToken);
-  final String refreshToken;
-  Map<String, dynamic> toJson() => {
-    'userid': 0,
-    'ipaddress': const String.fromEnvironment(
-      'CAP_DEVICE_ID',
-      defaultValue: 'FUH0216913004222',
-    ),
-    'devicetoken': const String.fromEnvironment(
-      'CAP_DEVICE_TOKEN',
-      defaultValue: 'testtokens',
-    ),
-    'osversion': const String.fromEnvironment(
-      'CAP_OS_VERSION',
-      defaultValue: '15.1',
-    ),
-    'AppVersion': const String.fromEnvironment(
-      'CAP_APP_VERSION',
-      defaultValue: '1',
-    ),
-    'devicetype': const String.fromEnvironment(
-      'CAP_DEVICE_TYPE',
-      defaultValue: 'iOS',
-    ),
-    'data': {'RefreshToken': refreshToken},
   };
 }

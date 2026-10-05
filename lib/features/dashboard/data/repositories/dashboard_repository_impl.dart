@@ -43,6 +43,8 @@ class DashboardRepositoryImpl implements DashboardRepository {
           },
           isArabic: CapLocaleHolder.instance.isArabic,
           fallbackMessage: 'Unable to load dashboard statistics',
+          endpoint: 'CAP/CapDashboard/GetDashboardStats',
+          model: 'DashboardStatsData',
         );
         return parsed.data!;
       }),

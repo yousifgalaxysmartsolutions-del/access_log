@@ -302,6 +302,86 @@ void main() {
 
       expect(((result as Success).data as IncidentDetailsData).alarmId, isNull);
     });
+
+    test('a malformed id fails softly through the parse path', () async {
+      // Regression for the reported crash. `id` is declared `int?`, so the
+      // generated `(json['id'] as num?)` cast raises
+      // `type 'String' is not a subtype of type 'num?'`. That is a `TypeError`,
+      // i.e. an `Error` and not an `Exception`, so it used to escape the
+      // repository's `on Exception` boundary as an unhandled exception instead
+      // of producing a `FailureResult`.
+      final adapter = _StubAdapter(
+        body: capSuccess({...kDetailsData, 'id': 'abc'}),
+      );
+
+      final result = await repositoryWith(
+        adapter,
+      ).getIncidentDetails(incidentId: 26, incidentNo: 'INC-SEED-D10739-04');
+
+      expect(result, isA<FailureResult<IncidentDetailsData>>());
+      final failure = (result as FailureResult).failure;
+      expect(failure, isA<ServiceFailure>());
+      expect((failure as ServiceFailure).code, 'cap_parse_error');
+      expect(failure.message, isNotEmpty);
+      // The request still reached the endpoint; only decoding failed.
+      expect(adapter.requests, hasLength(1));
+    });
+
+    test('a nested-object id fails as a parse error too', () async {
+      final adapter = _StubAdapter(
+        body: capSuccess({
+          ...kDetailsData,
+          'id': <String, dynamic>{'n': 1},
+        }),
+      );
+
+      final result = await repositoryWith(
+        adapter,
+      ).getIncidentDetails(incidentId: 26, incidentNo: 'INC-SEED-D10739-04');
+
+      expect(
+        ((result as FailureResult).failure as ServiceFailure).code,
+        'cap_parse_error',
+      );
+    });
+
+    test('a malformed alarmId object degrades to null, not a failure', () async {
+      // `alarmId` is decoded by `CapIdentifierConverter`, which treats anything
+      // that is not an identifier as absent. One unusable field must not take
+      // down the screen, which matches how `capMap` treats an odd `data` block.
+      final adapter = _StubAdapter(
+        body: capSuccess({...kDetailsData, 'alarmId': <String, dynamic>{}}),
+      );
+
+      final result = await repositoryWith(
+        adapter,
+      ).getIncidentDetails(incidentId: 26, incidentNo: 'INC-SEED-D10739-04');
+
+      final data = (result as Success).data as IncidentDetailsData;
+      expect(data.alarmId, isNull);
+      expect(data.id, 26);
+    });
+
+    test('a CAP business failure keeps its own result code', () async {
+      // Guards the diagnostics change: `cap_parse_error` must not mask a normal
+      // CAP failure reported by the backend.
+      final adapter = _StubAdapter(
+        body: {
+          'resultcode': 0,
+          'resultmessages': {'resultmessageen': 'Failed'},
+          'data': null,
+        },
+      );
+
+      final result = await repositoryWith(
+        adapter,
+      ).getIncidentDetails(incidentId: 26, incidentNo: '');
+
+      final failure = (result as FailureResult).failure;
+      expect(failure, isA<ServiceFailure>());
+      expect((failure as ServiceFailure).code, 'cap_result_0');
+      expect(failure.message, 'Failed');
+    });
   });
 
   group('C. empty related requests is a success', () {

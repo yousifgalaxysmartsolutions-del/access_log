@@ -2,59 +2,14 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../cap/cap_parse_diagnostics.dart';
+
 /// Debug-only structured logs. Credentials are redacted at every nesting level.
 class SafeLoggingInterceptor extends Interceptor {
   final _started = Expando<Stopwatch>();
-  static final _sensitive = RegExp(
-    r'password|passwd|pwd|token|authorization|cookie|secret|apikey|api_key|credential',
-    caseSensitive: false,
-  );
-  static Object? redact(Object? value, [String key = '', int depth = 0]) {
-    if (_sensitive.hasMatch(key)) return '[REDACTED]';
-    if (depth > 12) return '[nested content omitted]';
-    if (value is FormData) {
-      return {
-        'fields': [
-          for (final field in value.fields)
-            {field.key: redact(field.value, field.key, depth + 1)},
-        ],
-        'files': [
-          for (final file in value.files)
-            {'field': file.key, 'bytes': file.value.length},
-        ],
-      };
-    }
-    if (value is Map) {
-      return value.map(
-        (k, v) => MapEntry(k.toString(), redact(v, k.toString(), depth + 1)),
-      );
-    }
-    if (value is List) {
-      return value.take(100).map((v) => redact(v, key, depth + 1)).toList();
-    }
-    if (value is String) {
-      try {
-        final parsed = jsonDecode(value);
-        if (parsed is Map || parsed is List) {
-          return redact(parsed, key, depth + 1);
-        }
-      } on FormatException {
-        /* Ordinary text. */
-      }
-      if (_sensitive.hasMatch(value) ||
-          RegExp(
-            r'Bearer\s|eyJ[A-Za-z0-9_-]+\.',
-            caseSensitive: false,
-          ).hasMatch(value)) {
-        return '[sensitive text omitted]';
-      }
-      return value.length > 2000
-          ? '${value.substring(0, 2000)}… [truncated]'
-          : value;
-    }
-    if (value == null || value is num || value is bool) return value;
-    return '[${value.runtimeType} omitted]';
-  }
+  static final _sensitive = CapParseDiagnostics.sensitiveKeys;
+  static Object? redact(Object? value, [String key = '', int depth = 0]) =>
+      redactCapPayload(value, key: key, depth: depth);
 
   void _log(
     String stage,

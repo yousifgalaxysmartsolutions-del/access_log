@@ -2,19 +2,83 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SessionTokens {
-  const SessionTokens(this.accessToken, this.refreshToken);
+  const SessionTokens(
+    this.accessToken,
+    this.refreshToken, {
+    this.accessTokenExpiresAtUtc,
+    this.refreshTokenExpiresAtUtc,
+  });
   final String accessToken, refreshToken;
+  final DateTime? accessTokenExpiresAtUtc, refreshTokenExpiresAtUtc;
+  static const safetyWindow = Duration(seconds: 60);
+  bool needsRefresh(DateTime now) =>
+      accessToken.trim().isEmpty ||
+      accessTokenExpiresAtUtc == null ||
+      !now.toUtc().isBefore(
+        accessTokenExpiresAtUtc!.toUtc().subtract(safetyWindow),
+      );
+  bool canRefresh(DateTime now) =>
+      refreshToken.trim().isNotEmpty &&
+      refreshTokenExpiresAtUtc != null &&
+      now.toUtc().isBefore(refreshTokenExpiresAtUtc!.toUtc());
+
+  static SessionTokens fromResponse({
+    required String? access,
+    required String? refresh,
+    required int? lifetime,
+    required String? refreshExpiry,
+    required DateTime now,
+  }) {
+    final expires = refreshExpiry == null
+        ? null
+        : DateTime.tryParse(refreshExpiry);
+    if (access == null ||
+        access.trim().isEmpty ||
+        refresh == null ||
+        refresh.trim().isEmpty ||
+        lifetime == null ||
+        lifetime <= 0 ||
+        expires == null ||
+        !expires.isUtc ||
+        !expires.isAfter(now.toUtc())) {
+      throw const FormatException(
+        'Invalid authentication credentials or expiry',
+      );
+    }
+    return SessionTokens(
+      access,
+      refresh,
+      accessTokenExpiresAtUtc: now.toUtc().add(Duration(seconds: lifetime)),
+      refreshTokenExpiresAtUtc: expires.toUtc(),
+    );
+  }
+
   factory SessionTokens.fromJson(Map<String, dynamic> json) {
     final access = json['accessToken'] as String;
     final refresh = json['refreshToken'] as String? ?? '';
     if (access.isEmpty) {
       throw const FormatException('Empty tokens');
     }
-    return SessionTokens(access, refresh);
+    return SessionTokens(
+      access,
+      refresh,
+      accessTokenExpiresAtUtc: DateTime.tryParse(
+        json['accessTokenExpiresAtUtc'] as String? ?? '',
+      )?.toUtc(),
+      refreshTokenExpiresAtUtc: DateTime.tryParse(
+        json['refreshTokenExpiresAtUtc'] as String? ?? '',
+      )?.toUtc(),
+    );
   }
   Map<String, dynamic> toJson() => {
     'accessToken': accessToken,
     'refreshToken': refreshToken,
+    'accessTokenExpiresAtUtc': accessTokenExpiresAtUtc
+        ?.toUtc()
+        .toIso8601String(),
+    'refreshTokenExpiresAtUtc': refreshTokenExpiresAtUtc
+        ?.toUtc()
+        .toIso8601String(),
   };
 }
 

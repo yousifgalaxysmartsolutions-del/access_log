@@ -41,6 +41,8 @@ class IncidentDetailsRepositoryImpl implements IncidentDetailsRepository {
           (raw) => IncidentDetailsData.fromJson(capMap(raw)),
           isArabic: CapLocaleHolder.instance.isArabic,
           fallbackMessage: 'Unable to load incident details',
+          endpoint: 'CAP/CapIncident/GetIncidentDetails',
+          model: 'IncidentDetailsData',
         );
         return parsed.data!;
       }),
@@ -66,6 +68,8 @@ class IncidentDetailsRepositoryImpl implements IncidentDetailsRepository {
           (raw) => IncidentRequestsData.fromJson(capMap(raw)),
           isArabic: CapLocaleHolder.instance.isArabic,
           fallbackMessage: 'Unable to load incident requests',
+          endpoint: 'CAP/CapIncident/GetIncidentRequests',
+          model: 'IncidentRequestsData',
         );
         return parsed.data!;
       }),
@@ -95,6 +99,8 @@ class IncidentDetailsRepositoryImpl implements IncidentDetailsRepository {
           (raw) => IncidentTimelineData.fromJson(capMap(raw)),
           isArabic: CapLocaleHolder.instance.isArabic,
           fallbackMessage: 'Unable to load the incident timeline',
+          endpoint: 'CAP/CapIncident/GetIncidentTimeline',
+          model: 'IncidentTimelineData',
         );
         return parsed.data!;
       }),

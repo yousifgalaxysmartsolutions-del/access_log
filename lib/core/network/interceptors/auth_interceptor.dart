@@ -8,7 +8,6 @@ class AuthInterceptor extends Interceptor {
   final Dio dio;
   final SessionManager session;
   final Future<SessionTokens> Function(String token) refresh;
-  Future<void>? _refreshing;
   bool _protected(RequestOptions request) => request.extra['public'] != true;
   DioException _expired(RequestOptions request) => DioException(
     requestOptions: request,
@@ -29,7 +28,16 @@ class AuthInterceptor extends Interceptor {
       if (options.uri.origin != Uri.parse(dio.options.baseUrl).origin) {
         throw _expired(options);
       }
-      await _refreshing;
+      final epoch = session.generation;
+      if (options.extra['authRetried'] == true &&
+          options.extra['sessionGeneration'] != epoch) {
+        throw _expired(options);
+      }
+      // Retried requests already refreshed once; never refresh them again.
+      if (options.extra['authRetried'] != true) {
+        await session.ensureFresh(refresh);
+      }
+      if (epoch != session.generation) throw _expired(options);
       if (!session.isAuthenticated || session.tokens == null) {
         throw _expired(options);
       }
@@ -45,25 +53,11 @@ class AuthInterceptor extends Interceptor {
     }
   }
 
-  Future<void> _rotate(int epoch) async {
-    try {
-      final token = session.tokens?.refreshToken;
-      if (token == null) throw const FormatException('No refresh token');
-      final value = await refresh(token);
-      await session.rotate(value, epoch);
-    } catch (_) {
-      if (epoch == session.generation) await session.logout(expired: true);
-      rethrow;
-    }
-  }
-
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     final error = err;
     final request = error.requestOptions;
-    if (!_protected(request) ||
-        error.response?.statusCode != 401 ||
-        request.extra['authRetried'] == true) {
+    if (!_protected(request) || error.response?.statusCode != 401) {
       handler.next(error);
       return;
     }
@@ -73,14 +67,14 @@ class AuthInterceptor extends Interceptor {
       return;
     }
     try {
+      if (request.extra['authRetried'] == true) {
+        await session.logout(expired: true);
+        handler.reject(_expired(request));
+        return;
+      }
       if (request.headers['Authorization'] ==
           'Bearer ${session.tokens?.accessToken}') {
-        final running = _refreshing ??= _rotate(session.generation);
-        try {
-          await running;
-        } finally {
-          if (identical(_refreshing, running)) _refreshing = null;
-        }
+        await session.ensureFresh(refresh, force: true);
       }
       if (!session.isAuthenticated || epoch != session.generation) {
         throw _expired(request);

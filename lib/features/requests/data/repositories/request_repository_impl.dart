@@ -28,6 +28,7 @@ class RequestRepositoryImpl implements RequestRepository {
     RequestLookupData.fromJson,
     'Unable to load request lookups',
     'تعذر تحميل قوائم الطلبات',
+    'CAP/CapLookup/GetAllRequestLookup',
   );
 
   @override
@@ -58,6 +59,7 @@ class RequestRepositoryImpl implements RequestRepository {
     RequestListData.fromJson,
     'Unable to load requests',
     'تعذر تحميل الطلبات',
+    'CAP/CapRequest/GetRequestList',
   );
 
   @override
@@ -73,6 +75,7 @@ class RequestRepositoryImpl implements RequestRepository {
     RequestDecisionData.fromJson,
     'Unable to approve request',
     'تعذر الموافقة على الطلب',
+    'CAP/CapRequest/RequestApprove',
   );
 
   @override
@@ -88,6 +91,7 @@ class RequestRepositoryImpl implements RequestRepository {
     RequestDecisionData.fromJson,
     'Unable to reject request',
     'تعذر رفض الطلب',
+    'CAP/CapRequest/RequestReject',
   );
 
   // Same CAP parsing and error boundary as the incident repositories. The
@@ -99,6 +103,7 @@ class RequestRepositoryImpl implements RequestRepository {
     T Function(Map<String, dynamic>) decode,
     String englishFallback,
     String arabicFallback,
+    String endpoint,
   ) => apiGuard(() async {
     final context = await envelope;
     switch (context) {
@@ -112,6 +117,8 @@ class RequestRepositoryImpl implements RequestRepository {
           (raw) => decode(capMap(raw)),
           isArabic: isArabic,
           fallbackMessage: isArabic ? arabicFallback : englishFallback,
+          endpoint: endpoint,
+          model: '$T',
         ).data!;
     }
   });

@@ -1,6 +1,7 @@
 import '../../error/failure.dart';
 import '../api_exception.dart';
 import '../api_response.dart';
+import 'cap_parse_diagnostics.dart';
 
 /// Generic CAP response envelope shared by every CAP endpoint.
 ///
@@ -44,23 +45,43 @@ class GeneralResponse<T> {
   String? messageFor({required bool isArabic}) {
     final english = _text(resultMessageEn);
     final arabic = _text(resultMessageAr);
+    if (english.isEmpty && arabic.isEmpty) return null;
     if (isArabic) return arabic.isNotEmpty ? arabic : english;
     return english.isNotEmpty ? english : arabic;
   }
 
-  /// Parses the raw Retrofit payload without throwing.
+  /// Parses the raw Retrofit payload.
+  ///
+  /// [endpoint] and [model] only label diagnostics: when decoding the `data`
+  /// block fails, the failure names the exact call and type involved instead of
+  /// escaping as an unhandled exception.
   static GeneralResponse<T> parse<T>(
     ApiResponse response,
-    T Function(Object? value) decodeData,
-  ) {
+    T Function(Object? value) decodeData, {
+    String endpoint = '',
+    String model = '',
+    String fallbackMessage = 'Unable to read the server response',
+  }) {
     final json = response.data;
     final messages = json['resultmessages'];
     final rawData = json['data'];
     return GeneralResponse<T>(
       resultCode: _readResultCode(json['resultcode']),
-      resultMessageEn: _readMessage(messages, 'resultmessageen'),
-      resultMessageAr: _readMessage(messages, 'resultmessagear'),
-      data: rawData == null ? null : decodeData(rawData),
+      resultMessageEn:
+          _readMessage(json, 'resultmessageen') ??
+          _readMessage(messages, 'resultmessageen'),
+      resultMessageAr:
+          _readMessage(json, 'resultmessagear') ??
+          _readMessage(messages, 'resultmessagear'),
+      data: rawData == null
+          ? null
+          : CapParseDiagnostics.decodeData<T>(
+              decodeData,
+              rawData,
+              endpoint: endpoint,
+              model: model,
+              fallbackMessage: fallbackMessage,
+            ),
     );
   }
 
@@ -73,9 +94,14 @@ class GeneralResponse<T> {
     T Function(Object? value) decodeData, {
     required bool isArabic,
     required String fallbackMessage,
+    String endpoint = '',
+    String model = '',
   }) => parse<T>(
     response,
     decodeData,
+    endpoint: endpoint,
+    model: model,
+    fallbackMessage: fallbackMessage,
   ).requireData(isArabic: isArabic, fallbackMessage: fallbackMessage);
 
   /// Returns the decoded payload, or throws when the call failed.

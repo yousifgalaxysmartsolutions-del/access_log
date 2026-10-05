@@ -48,7 +48,9 @@ class _AuthApiService implements AuthApiService {
   }
 
   @override
-  Future<ApiResponse> refresh(RefreshTokenRequest request) async {
+  Future<ApiResponse> refresh(
+    CapRequest<RefreshTokenRequestData> request,
+  ) async {
     final _extra = <String, dynamic>{'public': true};
     final queryParameters = <String, dynamic>{};
     final _headers = <String, dynamic>{};

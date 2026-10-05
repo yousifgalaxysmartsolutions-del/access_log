@@ -243,6 +243,27 @@ void main() {
       };
   for (final operation in operations.entries) {
     test(
+      '${operation.key}: a malformed nested field fails as a parse error',
+      () async {
+        // Regression for the reported crash. `totalCount` is declared `int`, so
+        // the generated `(json['totalCount'] as num)` cast raises a `TypeError`.
+        // That is an `Error`, not an `Exception`, so it used to escape the
+        // `on Exception` repository boundary as an unhandled exception.
+        adapter.body = {
+          'resultcode': 1,
+          'resultmessages': {'resultmessageen': 'OK'},
+          'data': {...listJson, 'totalCount': 'many'},
+        };
+        final result = await _list(repo);
+        expect(result, isA<FailureResult>());
+        final failure = (result as FailureResult).failure;
+        expect(failure, isA<ServiceFailure>());
+        expect((failure as ServiceFailure).code, 'cap_parse_error');
+        // The request still reached the endpoint; only decoding failed.
+        expect(adapter.requests, hasLength(1));
+      },
+    );
+    test(
       '${operation.key}: CAP failure uses current backend message language',
       () async {
         adapter.body = {

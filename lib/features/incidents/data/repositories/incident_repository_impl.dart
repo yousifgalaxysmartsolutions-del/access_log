@@ -49,6 +49,8 @@ class IncidentRepositoryImpl implements IncidentRepository {
               IncidentListData.parse,
               isArabic: CapLocaleHolder.instance.isArabic,
               fallbackMessage: 'Unable to load incidents',
+              endpoint: 'CAP/CapIncident/GetIncidentList',
+              model: 'IncidentListData',
             );
             return parsed.data!;
           }),

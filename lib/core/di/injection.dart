@@ -20,7 +20,6 @@ import '../network/interceptors/auth_interceptor.dart';
 import '../session/session_manager.dart';
 import '../storage/secure_storage_service.dart';
 import '../../features/authentication/data/api/auth_api_service.dart';
-import '../../features/authentication/data/models/auth_models.dart';
 import '../../features/authentication/data/repositories/auth_repository_impl.dart';
 import '../../features/authentication/domain/repositories/auth_repository.dart';
 import '../../features/authentication/domain/usecases/login_use_case.dart';
@@ -61,9 +60,11 @@ Future<void> configureDependencies({
   // The session user must come from the same secure store as the tokens. A
   // custom `TokenStorage` that cannot store users simply leaves it in memory.
   final SessionUserStorage? users =
-      userStorage ?? (tokenStorage as SessionUserStorage?);
+      userStorage ??
+      (tokenStorage is SessionUserStorage
+          ? tokenStorage as SessionUserStorage
+          : null);
   final session = SessionManager(services<TokenStorage>(), users);
-  if (!config.mockAuthentication) await session.restore();
   services.registerSingleton<SessionManager>(
     session,
     dispose: (s) => s.dispose(),
@@ -79,33 +80,6 @@ Future<void> configureDependencies({
     instanceName: 'refresh',
     dispose: (d) => d.close(force: true),
   );
-  dio.interceptors.add(
-    AuthInterceptor(dio, session, (token) async {
-      if (config.mockAuthentication) {
-        return const SessionTokens('demo-access', 'demo-refresh');
-      }
-      final refreshApi = AuthApiService(refreshDio);
-      final response = (await refreshApi.refresh(
-        RefreshTokenRequest(token),
-      )).data;
-      if (response['resultcode'] != 1) {
-        throw const FormatException('Refresh token failed');
-      }
-      final data = response['data'];
-      if (data is! Map<String, dynamic>) {
-        throw const FormatException('Missing CAP refresh data');
-      }
-      final access = data['AccessToken'];
-      final refresh = data['RefreshToken'];
-      if (access is! String ||
-          access.isEmpty ||
-          refresh is! String ||
-          refresh.isEmpty) {
-        throw const FormatException('Invalid CAP refresh tokens');
-      }
-      return SessionTokens(access, refresh);
-    }),
-  );
   services.registerSingleton<Dio>(dio, dispose: (d) => d.close(force: true));
   services.registerLazySingleton<AuthApiService>(
     () => AuthApiService(services<Dio>()),
@@ -113,7 +87,12 @@ Future<void> configureDependencies({
   services.registerLazySingleton<AuthRepository>(
     () => config.mockAuthentication
         ? DemoAuthRepository(session)
-        : AuthRepositoryImpl(services<AuthApiService>(), session),
+        : AuthRepositoryImpl(
+            services<AuthApiService>(),
+            session,
+            refreshApi: AuthApiService(refreshDio),
+            deviceInfo: services<CapDeviceAppInfoProvider>(),
+          ),
   );
   services.registerLazySingleton<LoginUseCase>(
     () => LoginUseCase(services<AuthRepository>()),
@@ -148,6 +127,10 @@ Future<void> configureDependencies({
   );
   registerDashboardDependencies(session, config);
   registerRequestDependencies();
+  final auth = services<AuthRepository>();
+  dio.interceptors.add(AuthInterceptor(dio, session, auth.refresh));
+  // Finish restoration before runApp chooses its initial authenticated route.
+  if (!config.mockAuthentication) await session.restore(refresh: auth.refresh);
 }
 
 /// Uses the existing authenticated Dio and CAP context. Registration is lazy:
