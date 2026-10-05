@@ -131,26 +131,26 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
 
   void _onIncidentActionSelected(IncidentAvailableAction action) {
 
-    //
-    // ScaffoldMessenger.of(context).showSnackBar(
-    //   SnackBar(
-    //     content: Text("Action selected: ${action.actionTypeId}, ${action.flow},"
-    //
-    //     ),
-    //     behavior: SnackBarBehavior.floating,
-    //   ),
-    // );
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          context.tr(
-            'Action execution will be connected in the next sprint.',
-            'سيتم ربط تنفيذ الإجراء في المرحلة القادمة.',
-          ),
+        content: Text("Action selected: ${action.actionTypeId}, ${action.flow},"
+
         ),
         behavior: SnackBarBehavior.floating,
       ),
     );
+    // ScaffoldMessenger.of(context).showSnackBar(
+    //   SnackBar(
+    //     content: Text(
+    //       context.tr(
+    //         'Action execution will be connected in the next sprint.',
+    //         'سيتم ربط تنفيذ الإجراء في المرحلة القادمة.',
+    //       ),
+    //     ),
+    //     behavior: SnackBarBehavior.floating,
+    //   ),
+    // );
   }
 
   @override
