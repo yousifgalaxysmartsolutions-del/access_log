@@ -1090,6 +1090,7 @@ class _TimelineTab extends StatelessWidget {
       ],
     );
   }
+
 }
 
 /// One timeline entry.
