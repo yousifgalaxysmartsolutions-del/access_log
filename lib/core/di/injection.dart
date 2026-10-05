@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
 import '../../features/incidents/data/incident_lookup_store.dart';
 import '../../features/incidents/domain/usecases/get_incident_lookup_use_case.dart';
 import 'package:get_it/get_it.dart';
@@ -238,6 +239,9 @@ void registerDashboardDependencies(
   services.registerLazySingleton<IncidentLookupStore>(
     () => IncidentLookupStore(services<GetIncidentLookupUseCase>(), session),
     dispose: (store) => store.dispose(),
+  );
+  services.registerLazySingleton<IncidentActionResolverService>(
+    () => IncidentActionResolverService(services<IncidentLookupStore>()),
   );
 
   // Registered for both branches: the repository is either the CAP-backed

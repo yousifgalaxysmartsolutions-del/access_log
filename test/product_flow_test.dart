@@ -89,63 +89,64 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('status-driven incident actions render on Android size', (
+  testWidgets('incident actions fail closed without lookup on Android size', (
     tester,
   ) async {
     await setPhoneSize(tester, const Size(412, 915));
     await tester.pumpWidget(
       testApp(IncidentDetailsScreen(incident: MockData.capIncidents.first)),
     );
-    expect(find.text('Hold'), findsOneWidget);
-    expect(find.text('Complete'), findsOneWidget);
-    expect(find.text('New Renewal'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('No available actions'), findsOneWidget);
+    expect(find.text('Complete'), findsNothing);
+    expect(find.text('New Renewal'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('incident workflow exposes the configured actions per status', (
-    tester,
-  ) async {
-    await setPhoneSize(tester, const Size(412, 915));
+  testWidgets(
+    'list status never fabricates operational actions without lookup',
+    (tester) async {
+      await setPhoneSize(tester, const Size(412, 915));
 
-    Future<void> show(CapIncidentStatus status) async {
-      final incident = MockData.capIncidents.firstWhere(
-        (item) => item.status == status,
-      );
-      await tester.pumpWidget(
-        testApp(
-          IncidentDetailsScreen(key: ValueKey(status), incident: incident),
-        ),
-      );
-      await tester.pump();
-      expect(tester.takeException(), isNull);
-    }
+      Future<void> show(CapIncidentStatus status) async {
+        final incident = MockData.capIncidents.firstWhere(
+          (item) => item.status == status,
+        );
+        await tester.pumpWidget(
+          testApp(
+            IncidentDetailsScreen(key: ValueKey(status), incident: incident),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('No available actions'), findsOneWidget);
+      }
 
-    await show(CapIncidentStatus.needAssign);
-    expect(find.text('Assign'), findsOneWidget);
-    expect(find.text('Cancel'), findsOneWidget);
+      await show(CapIncidentStatus.needAssign);
+      expect(find.text('Assign'), findsNothing);
+      expect(find.text('Cancel'), findsNothing);
 
-    await show(CapIncidentStatus.needApproval);
-    expect(find.text('Approve'), findsOneWidget);
-    expect(find.text('Reject'), findsOneWidget);
+      await show(CapIncidentStatus.needApproval);
+      expect(find.text('Approve'), findsNothing);
+      expect(find.text('Reject'), findsNothing);
 
-    await show(CapIncidentStatus.pending);
-    expect(find.text('Hold'), findsOneWidget);
-    expect(find.text('New Entry Request'), findsOneWidget);
+      await show(CapIncidentStatus.pending);
+      expect(find.text('New Entry Request'), findsNothing);
 
-    await show(CapIncidentStatus.inProcess);
-    expect(find.text('Hold'), findsOneWidget);
-    expect(find.text('New Renewal'), findsOneWidget);
-    expect(find.text('Complete'), findsOneWidget);
+      await show(CapIncidentStatus.inProcess);
+      expect(find.text('New Renewal'), findsNothing);
+      expect(find.text('Complete'), findsNothing);
 
-    await show(CapIncidentStatus.hold);
-    expect(find.text('Resume Activity'), findsOneWidget);
+      await show(CapIncidentStatus.hold);
+      expect(find.text('Resume Activity'), findsNothing);
 
-    await show(CapIncidentStatus.completed);
-    expect(find.text('New Departure Request'), findsOneWidget);
+      await show(CapIncidentStatus.completed);
+      expect(find.text('New Departure Request'), findsNothing);
 
-    await show(CapIncidentStatus.cancelled);
-    expect(find.textContaining('Incident cancelled'), findsOneWidget);
-  });
+      await show(CapIncidentStatus.cancelled);
+      expect(find.text('No available actions'), findsOneWidget);
+    },
+  );
 
   testWidgets('all wizard entry screens render without overflow', (
     tester,

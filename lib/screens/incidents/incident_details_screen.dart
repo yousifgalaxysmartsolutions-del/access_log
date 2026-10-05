@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../core/di/injection.dart';
+import '../../features/incidents/domain/actions/incident_available_action.dart';
+import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
+import '../../features/incidents/presentation/widgets/incident_action_area.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -10,15 +14,12 @@ import '../../features/incidents/data/models/incident_details_models.dart';
 import '../../features/incidents/presentation/bloc/incident_details_bloc.dart';
 import '../../features/incidents/presentation/incident_details_bloc_scope.dart';
 import '../../models/models.dart';
-import '../../widgets/app_button.dart';
 import '../../widgets/background_simulation_components.dart';
 import '../../widgets/cap_incident_card.dart';
 import '../../widgets/info_row.dart';
 import '../../widgets/section_card.dart';
 import '../../widgets/skeleton_shimmer.dart';
-import 'incident_action_flows.dart';
 import 'active_intervention_screen.dart';
-import 'new_request_flows.dart';
 
 /// Tab indexes. General and Related Requests read real API data; Timeline is
 /// still mock-backed because its payload is unknown.
@@ -41,8 +42,8 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
   /// directly instead of through `AppRoutes`, and `initState` needs it for the
   /// first load.
   late final IncidentDetailsBloc detailsBloc;
-  late CapIncidentStatus status = widget.incident.status;
-  CapIncidentStatus heldFromStatus = CapIncidentStatus.inProcess;
+  // Legacy header presentation only; actions use the General API status ID.
+  CapIncidentStatus get status => widget.incident.status;
   late final TabController tabController;
 
   /// The tab index the selection last came to rest at.
@@ -128,90 +129,28 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
     _loadPanelFor(tabController.index);
   }
 
-  void _updateStatus(CapIncidentStatus next, String message) {
-    final previous = status;
-    setState(() => status = next);
+  void _onIncidentActionSelected(IncidentAvailableAction action) {
+
+    //
+    // ScaffoldMessenger.of(context).showSnackBar(
+    //   SnackBar(
+    //     content: Text("Action selected: ${action.actionTypeId}, ${action.flow},"
+    //
+    //     ),
+    //     behavior: SnackBarBehavior.floating,
+    //   ),
+    // );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: context.tr('UNDO', 'تراجع'),
-          onPressed: () => setState(() => status = previous),
-        ),
-      ),
-    );
-  }
-
-  /// Prototype entry point for the bottom action area.
-  ///
-  /// The create-request API is not connected yet, so the wizard still runs but
-  /// its result is deliberately discarded: injecting a locally built request into
-  /// the tab would present prototype data as if `GetIncidentRequests` had
-  /// returned it. The write sprint will create the request on the backend and
-  /// then refresh the tab.
-  Future<void> _newRequest(RelatedRequestType type) async {
-    final request = await Navigator.push<RelatedRequest>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NewRequestWizard(incident: widget.incident, type: type),
-      ),
-    );
-    if (request != null && mounted) {
-      tabController.animateTo(_relatedRequestsTabIndex);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.tr(
-              'Creating requests is not connected yet',
-              'إنشاء الطلبات غير متصل بالخدمة بعد',
-            ),
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _cancelIncident() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.cancel_outlined, color: AppColors.error),
-        title: Text(context.tr('Cancel Incident?', 'إلغاء البلاغ؟')),
         content: Text(
           context.tr(
-            'This will move the incident to Cancelled. This is a local prototype action.',
-            'سيتم نقل البلاغ إلى حالة ملغى. هذا إجراء تجريبي محلي.',
+            'Action execution will be connected in the next sprint.',
+            'سيتم ربط تنفيذ الإجراء في المرحلة القادمة.',
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(context.tr('Back', 'رجوع')),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
-            child: Text(context.tr('Cancel Incident', 'إلغاء البلاغ')),
-          ),
-        ],
+        behavior: SnackBarBehavior.floating,
       ),
     );
-    if (confirmed == true && mounted) {
-      _updateStatus(
-        CapIncidentStatus.cancelled,
-        context.tr('Incident cancelled', 'تم إلغاء البلاغ'),
-      );
-    }
-  }
-
-  Future<void> _openAction(Widget flow) async {
-    final next = await Navigator.push<CapIncidentStatus>(
-      context,
-      MaterialPageRoute(builder: (_) => flow),
-    );
-    if (next != null && mounted) setState(() => status = next);
   }
 
   @override
@@ -398,35 +337,23 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
         );
       },
     ),
-    bottomNavigationBar: _ActionArea(
-      status: status,
-      onAssign: () => _openAction(AssignTaskFlow(incident: widget.incident)),
-      onCancel: _cancelIncident,
-      onAccept: () => _updateStatus(
-        CapIncidentStatus.pending,
-        context.tr(
-          'Assignment approved • Status changed to Pending',
-          'تمت الموافقة على الإسناد • تم تغيير الحالة إلى قيد الانتظار',
-        ),
-      ),
-      onReject: () =>
-          _openAction(RejectIncidentFlow(incident: widget.incident)),
-      onHold: () {
-        heldFromStatus = status;
-        _openAction(
-          FieldTaskWizard(incident: widget.incident, type: TaskFlowType.hold),
+    bottomNavigationBar: BlocBuilder<IncidentDetailsBloc, IncidentDetailsState>(
+      bloc: detailsBloc,
+      builder: (context, state) {
+        final resolver = services.isRegistered<IncidentActionResolverService>()
+            ? services<IncidentActionResolverService>()
+            : null;
+        final actions =
+            resolver?.resolve(
+              incidentStatusId: state.generalData?.status?.id,
+            ) ??
+            const <IncidentAvailableAction>[];
+        return IncidentActionArea(
+          actions: actions,
+          loading: state.generalData == null && state.generalFailure == null,
+          onActionSelected: _onIncidentActionSelected,
         );
       },
-      onComplete: () => _openAction(
-        FieldTaskWizard(incident: widget.incident, type: TaskFlowType.complete),
-      ),
-      onResume: () => _updateStatus(
-        heldFromStatus,
-        context.tr('Incident resumed successfully', 'تم استئناف البلاغ بنجاح'),
-      ),
-      onEntryRequest: () => _newRequest(RelatedRequestType.intervention),
-      onRenewalRequest: () => _newRequest(RelatedRequestType.renewal),
-      onDepartureRequest: () => _newRequest(RelatedRequestType.departure),
     ),
   );
 }
@@ -1090,7 +1017,6 @@ class _TimelineTab extends StatelessWidget {
       ],
     );
   }
-
 }
 
 /// One timeline entry.
@@ -1775,199 +1701,6 @@ class _RequestRow extends StatelessWidget {
       ),
     ],
   );
-}
-
-class _ActionArea extends StatelessWidget {
-  const _ActionArea({
-    required this.status,
-    required this.onAssign,
-    required this.onCancel,
-    required this.onAccept,
-    required this.onReject,
-    required this.onHold,
-    required this.onComplete,
-    required this.onResume,
-    required this.onEntryRequest,
-    required this.onRenewalRequest,
-    required this.onDepartureRequest,
-  });
-  final CapIncidentStatus status;
-  final VoidCallback onAssign,
-      onCancel,
-      onAccept,
-      onReject,
-      onHold,
-      onComplete,
-      onResume,
-      onEntryRequest,
-      onRenewalRequest,
-      onDepartureRequest;
-  @override
-  Widget build(BuildContext context) {
-    final actions = switch (status) {
-      CapIncidentStatus.needAssign => [
-        AppButton(
-          label: context.tr('Assign', 'إسناد'),
-          icon: Icons.person_add_alt,
-          onPressed: onAssign,
-          expanded: true,
-        ),
-        AppButton(
-          label: context.tr('Cancel', 'إلغاء'),
-          icon: Icons.close,
-          style: AppButtonStyle.outline,
-          onPressed: onCancel,
-          expanded: true,
-        ),
-      ],
-      CapIncidentStatus.needApproval => [
-        AppButton(
-          label: context.tr('Approve', 'موافقة'),
-          icon: Icons.approval_outlined,
-          onPressed: onAccept,
-          expanded: true,
-        ),
-        AppButton(
-          label: context.tr('Reject', 'رفض'),
-          icon: Icons.close,
-          style: AppButtonStyle.outline,
-          onPressed: onReject,
-          expanded: true,
-        ),
-      ],
-      CapIncidentStatus.pending => [
-        AppButton(
-          label: context.tr('Hold', 'تعليق'),
-          icon: Icons.pause,
-          style: AppButtonStyle.outline,
-          onPressed: onHold,
-          expanded: true,
-        ),
-        AppButton(
-          label: context.tr('New Entry Request', 'طلب دخول جديد'),
-          icon: Icons.login,
-          onPressed: onEntryRequest,
-          expanded: true,
-        ),
-      ],
-      CapIncidentStatus.inProcess => [
-        AppButton(
-          label: context.tr('Hold', 'تعليق'),
-          icon: Icons.pause,
-          style: AppButtonStyle.outline,
-          onPressed: onHold,
-          expanded: true,
-        ),
-        AppButton(
-          label: context.tr('New Renewal', 'طلب تجديد'),
-          icon: Icons.autorenew,
-          style: AppButtonStyle.secondary,
-          onPressed: onRenewalRequest,
-          expanded: true,
-        ),
-        AppButton(
-          label: context.tr('Complete', 'إكمال'),
-          icon: Icons.task_alt,
-          onPressed: onComplete,
-          expanded: true,
-        ),
-      ],
-      CapIncidentStatus.hold => [
-        AppButton(
-          label: context.tr('Resume Activity', 'استئناف النشاط'),
-          icon: Icons.play_arrow,
-          onPressed: onResume,
-          expanded: true,
-        ),
-      ],
-      CapIncidentStatus.completed => [
-        AppButton(
-          label: context.tr('New Departure Request', 'طلب مغادرة جديد'),
-          icon: Icons.logout,
-          onPressed: onDepartureRequest,
-          expanded: true,
-        ),
-      ],
-      CapIncidentStatus.cancelled => <Widget>[],
-    };
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 11, 16, 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .05),
-            blurRadius: 18,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: actions.isEmpty
-            ? Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.block, color: AppColors.error),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      context.tr(
-                        'No operational actions • Incident cancelled',
-                        'لا توجد إجراءات تشغيلية • البلاغ ملغى',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: AppTypography.label.copyWith(
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ),
-                ],
-              )
-            : actions.length >= 3
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: actions[0]),
-                      const SizedBox(width: 9),
-                      Expanded(child: actions[1]),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: List.generate(
-                      actions.length - 2,
-                      (index) => Expanded(
-                        child: Padding(
-                          padding: EdgeInsetsDirectional.only(
-                            end: index == actions.length - 3 ? 0 : 9,
-                          ),
-                          child: actions[index + 2],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              )
-            : Row(
-                children: List.generate(
-                  actions.length,
-                  (index) => Expanded(
-                    child: Padding(
-                      padding: EdgeInsetsDirectional.only(
-                        end: index == actions.length - 1 ? 0 : 9,
-                      ),
-                      child: actions[index],
-                    ),
-                  ),
-                ),
-              ),
-      ),
-    );
-  }
 }
 
 /// Icon for a request type, keyed on the API's `requestType.name`.

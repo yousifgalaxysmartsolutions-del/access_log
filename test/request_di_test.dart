@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:access_log_plus/features/incidents/domain/actions/incident_action_resolver_service.dart';
 import 'package:access_log_plus/features/incidents/data/incident_lookup_store.dart';
 import 'package:access_log_plus/features/incidents/domain/usecases/get_incident_lookup_use_case.dart';
 import 'dart:typed_data';
@@ -122,6 +123,10 @@ void main() {
         same(services<GetIncidentLookupUseCase>()),
       );
       expect(services<IncidentLookupStore>().current, isNull);
+      expect(
+        services<IncidentActionResolverService>(),
+        same(services<IncidentActionResolverService>()),
+      );
       final api = services<RequestApiService>();
       final repo = services<RequestRepository>();
       expect(repo, isA<RequestRepositoryImpl>());
