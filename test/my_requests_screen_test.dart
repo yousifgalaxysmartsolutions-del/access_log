@@ -69,6 +69,25 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('tab return refreshes requests without recreating search state', (
+    tester,
+  ) async {
+    Widget page(bool active) => MaterialApp(
+      home: Scaffold(body: MyRequestsScreen(isActive: active)),
+    );
+    await tester.pumpWidget(page(true));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).first, 'retained query');
+    await tester.pumpWidget(page(false));
+    expect(bloc.events.whereType<RefreshRequests>(), isEmpty);
+    await tester.pumpWidget(page(true));
+    expect(bloc.events.whereType<RefreshRequests>(), hasLength(1));
+    expect(find.text('retained query'), findsOneWidget);
+    await tester.pumpWidget(page(true));
+    expect(bloc.events.whereType<RefreshRequests>(), hasLength(1));
+    expect(bloc.events.whereType<LoadRequests>(), hasLength(1));
+  });
+
   for (final approve in [true, false]) {
     testWidgets(
       '${approve ? 'approve' : 'reject'} dialog forwards trimmed text to correct event',

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import '../../core/di/injection.dart';
+import '../../features/incidents/data/incident_lookup_store.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/localization/app_strings.dart';
@@ -14,16 +17,53 @@ import '../map/tower_map_screen.dart';
 import '../reporting/reporting_screen.dart';
 import '../../widgets/skeleton_shimmer.dart';
 
-class CapDashboardScreen extends StatelessWidget {
-  const CapDashboardScreen({super.key});
+class CapDashboardScreen extends StatefulWidget {
+  const CapDashboardScreen({super.key, this.isActive = true});
+  final bool isActive;
+
+  @override
+  State<CapDashboardScreen> createState() => _CapDashboardScreenState();
+}
+
+class _CapDashboardScreenState extends State<CapDashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isActive) _refreshLookup();
+  }
+
+  @override
+  void didUpdateWidget(CapDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) _refreshLookup();
+  }
+
+  void _refreshLookup() {
+    if (services.isRegistered<IncidentLookupStore>()) {
+      unawaited(services<IncidentLookupStore>().refresh());
+    }
+  }
 
   @override
   Widget build(BuildContext context) =>
-      DashboardBlocScope(child: const _CapDashboardView());
+      DashboardBlocScope(child: _CapDashboardView(isActive: widget.isActive));
 }
 
-class _CapDashboardView extends StatelessWidget {
-  const _CapDashboardView();
+class _CapDashboardView extends StatefulWidget {
+  const _CapDashboardView({required this.isActive});
+  final bool isActive;
+  @override
+  State<_CapDashboardView> createState() => _CapDashboardViewState();
+}
+
+class _CapDashboardViewState extends State<_CapDashboardView> {
+  @override
+  void didUpdateWidget(_CapDashboardView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      context.read<DashboardBloc>().add(const DashboardRefreshed());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

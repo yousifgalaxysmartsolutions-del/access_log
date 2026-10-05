@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:access_log_plus/features/incidents/data/models/incident_lookup_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:access_log_plus/core/error/failure.dart';
 import 'package:access_log_plus/core/network/result.dart';
@@ -10,6 +11,9 @@ import 'package:access_log_plus/features/incidents/data/models/incident_list_mod
 import 'package:access_log_plus/models/models.dart';
 
 class ListRepositoryFake implements IncidentRepository {
+  @override
+  Future<Result<IncidentLookupData>> getIncidentLookup() async =>
+      Success(IncidentLookupData());
   final calls = <(DateTime, DateTime)>[];
   Result<List<CapIncident>> result = const Success([]);
   Completer<Result<List<CapIncident>>>? gate;

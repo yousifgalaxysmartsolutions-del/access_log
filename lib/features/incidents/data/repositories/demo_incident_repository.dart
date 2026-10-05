@@ -2,9 +2,19 @@ import '../../../../core/network/result.dart';
 import '../../../../mock/mock_data.dart';
 import '../../../../models/models.dart';
 import '../../domain/repositories/incident_repository.dart';
+import '../models/incident_lookup_models.dart';
+import '../../../../core/error/failure.dart';
 
 /// Prototype "today" incidents, used while the app runs in mock-auth mode.
 class DemoIncidentRepository implements IncidentRepository {
+  @override
+  Future<Result<IncidentLookupData>> getIncidentLookup() async =>
+      const FailureResult(
+        ServiceFailure(
+          'demo_lookup_unavailable',
+          'Lookup requires API authentication',
+        ),
+      );
   @override
   Future<Result<List<CapIncident>>> getIncidentsForDay({
     required DateTime day,

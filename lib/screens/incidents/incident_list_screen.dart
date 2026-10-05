@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import '../../features/incidents/data/incident_lookup_store.dart';
 import '../../core/di/injection.dart';
 import '../../core/error/failure.dart';
 import '../../features/incidents/domain/usecases/get_incident_list_use_case.dart';
@@ -15,7 +17,12 @@ import '../../widgets/empty_state.dart';
 enum IncidentSort { newest, oldest, priority }
 
 class IncidentListScreen extends StatefulWidget {
-  const IncidentListScreen({super.key, this.initialFilter});
+  const IncidentListScreen({
+    super.key,
+    this.initialFilter,
+    this.isActive = true,
+  });
+  final bool isActive;
   final IncidentListFilter? initialFilter;
   @override
   State<IncidentListScreen> createState() => _IncidentListScreenState();
@@ -30,6 +37,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.isActive) _refreshLookup();
     filter = widget.initialFilter ?? const IncidentListFilter();
     bloc = IncidentListBloc(
       services.isRegistered<GetIncidentListUseCase>()
@@ -38,6 +46,21 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
     );
     final (from, to) = IncidentListBloc.range(filter);
     bloc.load(from, to);
+  }
+
+  @override
+  void didUpdateWidget(IncidentListScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _refreshLookup();
+      unawaited(bloc.load(bloc.state.from, bloc.state.to));
+    }
+  }
+
+  void _refreshLookup() {
+    if (services.isRegistered<IncidentLookupStore>()) {
+      unawaited(services<IncidentLookupStore>().refresh());
+    }
   }
 
   @override

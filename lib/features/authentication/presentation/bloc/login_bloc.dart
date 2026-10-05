@@ -1,4 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:async';
+import '../../../incidents/data/incident_lookup_store.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/network/result.dart';
 import '../../domain/usecases/login_use_case.dart';
@@ -18,7 +20,8 @@ class LoginState {
 }
 
 class LoginBloc extends Bloc<LoginSubmitted, LoginState> {
-  LoginBloc(LoginUseCase login) : super(const LoginState(LoginStatus.initial)) {
+  LoginBloc(LoginUseCase login, {IncidentLookupStore? lookup})
+    : super(const LoginState(LoginStatus.initial)) {
     on<LoginSubmitted>((event, emit) async {
       if (state.status == LoginStatus.loading) return;
       emit(const LoginState(LoginStatus.loading));
@@ -29,6 +32,7 @@ class LoginBloc extends Bloc<LoginSubmitted, LoginState> {
       );
       switch (result) {
         case Success():
+          if (lookup != null) unawaited(lookup.refresh());
           emit(const LoginState(LoginStatus.success));
         case FailureResult(:final failure):
           emit(LoginState(LoginStatus.failure, failure));

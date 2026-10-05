@@ -12,10 +12,13 @@ class ApiRequestContextProvider {
   ApiRequestContextProvider({
     required SessionUserStorage? users,
     required CapDeviceAppInfoProvider deviceInfo,
+    SessionUser? Function()? currentUser,
   }) : _users = users,
+       _currentUser = currentUser,
        _deviceInfo = deviceInfo;
 
   final SessionUserStorage? _users;
+  final SessionUser? Function()? _currentUser;
   final CapDeviceAppInfoProvider _deviceInfo;
 
   Future<CapDeviceAppInfo> resolveDeviceInfo() => _deviceInfo.resolve();
@@ -53,7 +56,9 @@ class ApiRequestContextProvider {
     T data, {
     required String authenticationMessage,
   }) async {
-    final user = await _users?.readUser();
+    final user = _currentUser != null
+        ? _currentUser()
+        : await _users?.readUser();
     final numericId = user?.numericId ?? 0;
     if (numericId <= 0) {
       return FailureResult(UnauthorizedFailure(authenticationMessage));

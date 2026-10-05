@@ -51,6 +51,38 @@ void main() {
   }
 
   testWidgets(
+    'tab return reloads the selected date range and preserves search',
+    (tester) async {
+      final filter = IncidentListFilter(
+        from: DateTime(2026, 9, 1),
+        to: DateTime(2026, 9, 3),
+      );
+      Widget page(bool active) => MaterialApp(
+        home: Scaffold(
+          body: IncidentListScreen(isActive: active, initialFilter: filter),
+        ),
+      );
+      await tester.pumpWidget(page(true));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField).first, 'Power');
+      await tester.pumpWidget(page(false));
+      await tester.pump();
+      expect(repo.calls, hasLength(1));
+      await tester.pumpWidget(page(true));
+      await tester.pump();
+      expect(repo.calls, hasLength(2));
+      expect(repo.calls.last, repo.calls.first);
+      expect(
+        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+        'Power',
+      );
+      await tester.pumpWidget(page(true));
+      await tester.pump();
+      expect(repo.calls, hasLength(2));
+    },
+  );
+
+  testWidgets(
     'applying non-date filters stays local; date changes refetch; priority and date sorts',
     (tester) async {
       await open(tester);

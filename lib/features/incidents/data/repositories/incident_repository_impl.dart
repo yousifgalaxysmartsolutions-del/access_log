@@ -10,12 +10,40 @@ import '../../domain/repositories/incident_repository.dart';
 import '../api/incident_api_service.dart';
 import '../mappers/incident_mapper.dart';
 import '../models/incident_list_models.dart';
+import '../models/incident_lookup_models.dart';
 
 class IncidentRepositoryImpl implements IncidentRepository {
   IncidentRepositoryImpl(this._api, this._context);
 
   final IncidentApiService _api;
   final ApiRequestContextProvider _context;
+
+  @override
+  Future<Result<IncidentLookupData>> getIncidentLookup() => apiGuard(() async {
+    final isArabic = CapLocaleHolder.instance.isArabic;
+    final envelope = await _context.wrap<Null>(
+      null,
+      authenticationMessage: isArabic
+          ? 'يرجى تسجيل الدخول مجددًا'
+          : 'Sign in again',
+    );
+    switch (envelope) {
+      case FailureResult(:final failure):
+        throw ApiException(failure);
+      case Success(:final data):
+        final response = await _api.getAllIncidentLookup(data);
+        return GeneralResponse.parseOrThrow<IncidentLookupData>(
+          response,
+          (raw) => IncidentLookupData.fromJson(raw as Map<String, dynamic>),
+          isArabic: isArabic,
+          fallbackMessage: isArabic
+              ? 'تعذر تحميل قوائم البلاغات'
+              : 'Unable to load incident lookups',
+          endpoint: 'CAP/CapLookup/GetAllIncidentLookup',
+          model: 'IncidentLookupData',
+        ).data!;
+    }
+  });
 
   @override
   Future<Result<List<CapIncident>>> getIncidentsForDay({

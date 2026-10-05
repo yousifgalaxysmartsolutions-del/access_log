@@ -16,6 +16,9 @@ part 'incident_api_service.g.dart';
 abstract class IncidentApiService {
   factory IncidentApiService(Dio dio, {String? baseUrl}) = _IncidentApiService;
 
+  @POST('CAP/CapLookup/GetAllIncidentLookup')
+  Future<ApiResponse> getAllIncidentLookup(@Body() CapRequest<Null> body);
+
   @POST('CAP/CapIncident/GetIncidentList')
   Future<ApiResponse> getIncidentList(
     @Body() CapRequest<IncidentListRequestData> body,

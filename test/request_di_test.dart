@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'package:access_log_plus/features/incidents/data/incident_lookup_store.dart';
+import 'package:access_log_plus/features/incidents/domain/usecases/get_incident_lookup_use_case.dart';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -111,6 +113,15 @@ void main() {
     'actual app setup resolves six lazy singletons and is repeatable',
     () async {
       await configure();
+      expect(
+        services<IncidentLookupStore>(),
+        same(services<IncidentLookupStore>()),
+      );
+      expect(
+        services<GetIncidentLookupUseCase>(),
+        same(services<GetIncidentLookupUseCase>()),
+      );
+      expect(services<IncidentLookupStore>().current, isNull);
       final api = services<RequestApiService>();
       final repo = services<RequestRepository>();
       expect(repo, isA<RequestRepositoryImpl>());

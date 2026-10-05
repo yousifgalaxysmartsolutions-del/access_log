@@ -14,7 +14,8 @@ import '../../widgets/section_card.dart';
 import '../incidents/incident_details_screen.dart';
 
 class MyRequestsScreen extends StatefulWidget {
-  const MyRequestsScreen({super.key});
+  const MyRequestsScreen({super.key, this.isActive = true});
+  final bool isActive;
   @override
   State<MyRequestsScreen> createState() => _MyRequestsScreenState();
 }
@@ -28,6 +29,14 @@ class _MyRequestsScreenState extends State<MyRequestsScreen> {
       bloc = services<RequestListBloc>()
         ..add(const LoadRequestLookup())
         ..add(const LoadRequests());
+    }
+  }
+
+  @override
+  void didUpdateWidget(MyRequestsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      bloc?.add(const RefreshRequests());
     }
   }
 

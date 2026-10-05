@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:access_log_plus/core/di/injection.dart';
+import 'package:access_log_plus/screens/dashboard/cap_dashboard_screen.dart';
+import 'package:access_log_plus/features/incidents/data/models/incident_lookup_models.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -41,6 +45,9 @@ class _FakeDashboardRepository implements DashboardRepository {
 }
 
 class _FakeIncidentRepository implements IncidentRepository {
+  @override
+  Future<Result<IncidentLookupData>> getIncidentLookup() async =>
+      Success(IncidentLookupData());
   int calls = 0;
   @override
   Future<Result<List<CapIncident>>> getIncidentsForDay({
@@ -53,6 +60,37 @@ class _FakeIncidentRepository implements IncidentRepository {
 }
 
 void main() {
+  testWidgets('dashboard tab return refreshes both data sources once', (
+    tester,
+  ) async {
+    final stats = _FakeDashboardRepository();
+    final incidents = _FakeIncidentRepository();
+    services.registerFactory<DashboardBloc>(
+      () => DashboardBloc(
+        getDashboardStats: GetDashboardStatsUseCase(stats),
+        getIncidentList: GetIncidentListUseCase(incidents),
+      ),
+    );
+    addTearDown(() => services.reset());
+    Widget page(bool active) => MaterialApp(
+      home: Scaffold(body: CapDashboardScreen(isActive: active)),
+    );
+    await tester.pumpWidget(page(true));
+    await tester.pump();
+    expect(stats.calls, 1);
+    expect(incidents.calls, 1);
+    await tester.pumpWidget(page(false));
+    await tester.pump();
+    await tester.pumpWidget(page(true));
+    await tester.pump();
+    expect(stats.calls, 2);
+    expect(incidents.calls, 2);
+    await tester.pumpWidget(page(true));
+    await tester.pump();
+    expect(stats.calls, 2);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('DashboardBloc loads both sections in one event', () async {
     final dashRepo = _FakeDashboardRepository();
     final incRepo = _FakeIncidentRepository();

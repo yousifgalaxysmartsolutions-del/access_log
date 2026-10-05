@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import '../../features/incidents/data/incident_lookup_store.dart';
+import '../../features/incidents/domain/usecases/get_incident_lookup_use_case.dart';
 import 'package:get_it/get_it.dart';
 import '../../features/requests/presentation/bloc/request_list_bloc.dart';
 import '../../features/requests/data/api/request_api_service.dart';
@@ -101,7 +103,10 @@ Future<void> configureDependencies({
     () => GetUserProfileUseCase(services<AuthRepository>()),
   );
   services.registerFactory<LoginBloc>(
-    () => LoginBloc(services<LoginUseCase>()),
+    () => LoginBloc(
+      services<LoginUseCase>(),
+      lookup: services<IncidentLookupStore>(),
+    ),
   );
   services.registerLazySingleton<Dio>(
     () => DioClient.create(
@@ -184,6 +189,7 @@ void registerDashboardDependencies(
   services.registerLazySingleton<ApiRequestContextProvider>(
     () => ApiRequestContextProvider(
       users: session.users,
+      currentUser: () => session.user,
       deviceInfo: services<CapDeviceAppInfoProvider>(),
     ),
   );
@@ -224,6 +230,15 @@ void registerDashboardDependencies(
       ),
     );
   }
+
+  // Session-level lookup, independent from incident action configuration.
+  services.registerLazySingleton<GetIncidentLookupUseCase>(
+    () => GetIncidentLookupUseCase(services<IncidentRepository>()),
+  );
+  services.registerLazySingleton<IncidentLookupStore>(
+    () => IncidentLookupStore(services<GetIncidentLookupUseCase>(), session),
+    dispose: (store) => store.dispose(),
+  );
 
   // Registered for both branches: the repository is either the CAP-backed
   // implementation or the prototype one, so the details screen resolves a bloc

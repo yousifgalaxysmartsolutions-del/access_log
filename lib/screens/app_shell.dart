@@ -25,9 +25,9 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      const CapDashboardScreen(),
-      const IncidentListScreen(),
-      const MyRequestsScreen(),
+      CapDashboardScreen(isActive: index == 0),
+      IncidentListScreen(isActive: index == 1),
+      MyRequestsScreen(isActive: index == 2),
       const MoreHubScreen(),
     ];
     return Scaffold(
