@@ -151,21 +151,16 @@ class CapFormAnswer implements CapPayload {
   final int questionId, questionTypeId, optionId;
   final String text;
 
-  /// Preserved as a wire string; binary encoding must be supplied by the host.
-  final String? answerBytes;
+  /// Raw bytes serialize as a JSON array, not a Base64 string.
+  final List<int>? answerBytes;
   final CapFormEvidence? evidence;
   @override
   Map<String, dynamic> toJson() {
-    if (evidence != null) {
-      throw const FormatException(
-        'Encode local evidence using the confirmed CAP contract before submission',
-      );
-    }
     return {
       'QuestionId': questionId,
       'QuestionTypeId': questionTypeId,
       'TextAnswer': text,
-      'AnswerBytes': answerBytes,
+      'AnswerBytes': evidence?.bytes.toList() ?? answerBytes,
       'OptionAnswer': optionId,
     };
   }
@@ -179,8 +174,13 @@ class IncidentFormSubmission implements CapPayload {
     required this.formId,
     required this.remark,
     required List<CapFormAnswer> answers,
+    this.lat = '',
+    this.long = '',
+    this.photo = '',
   }) : answers = List.unmodifiable(answers);
-  final int incidentId, newStatusId, actionTypeId, formId;
+  final int incidentId, newStatusId, actionTypeId;
+  final int? formId;
+  final String lat, long, photo;
   final String remark;
   final List<CapFormAnswer> answers;
   @override
@@ -189,6 +189,9 @@ class IncidentFormSubmission implements CapPayload {
     'NewStatusId': newStatusId,
     'ActionTypeId': actionTypeId,
     'Remark': remark,
+    'lat': lat,
+    'long': long,
+    'photo': photo,
     'QuestionFormId': formId,
     'Answers': answers.map((a) => a.toJson()).toList(),
   };

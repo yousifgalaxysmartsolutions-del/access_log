@@ -14,6 +14,47 @@ import '../../data/models/cap_form_models.dart';
 /// Foreground, user-initiated capture only. No calls to CAP or background work.
 class CapNativeFormCapture {
   static const maxEvidenceBytes = 16 * 1024 * 1024;
+
+  /// Shared camera capture for form fields and action requirements.
+  Future<CapFormEvidence?> capturePhoto() async {
+    final file = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      maxWidth: 1920,
+      imageQuality: 85,
+    );
+    if (file == null) return null;
+    if (await file.length() > maxEvidenceBytes) {
+      throw const FormatException('Evidence exceeds 16 MB');
+    }
+    return CapFormEvidence(
+      name: file.name,
+      mimeType: file.mimeType ?? 'image/jpeg',
+      bytes: await file.readAsBytes(),
+    );
+  }
+
+  /// Shared foreground location retrieval for form fields and action requirements.
+  Future<String> getCurrentLocation() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw const FormatException('Location services disabled');
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw const FormatException('Location permission denied');
+    }
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 20),
+      ),
+    );
+    return '${position.latitude},${position.longitude}';
+  }
+
   Future<CapFormAnswer?> capture(
     BuildContext context,
     CapFormQuestion q,
@@ -22,27 +63,20 @@ class CapNativeFormCapture {
     String? text;
     switch (q.type) {
       case CapQuestionType.image:
+        evidence = await capturePhoto();
       case CapQuestionType.video:
         final picker = ImagePicker();
-        final file = q.type == CapQuestionType.image
-            ? await picker.pickImage(
-                source: ImageSource.camera,
-                maxWidth: 1920,
-                imageQuality: 85,
-              )
-            : await picker.pickVideo(
-                source: ImageSource.camera,
-                maxDuration: const Duration(seconds: 30),
-              );
+        final file = await picker.pickVideo(
+          source: ImageSource.camera,
+          maxDuration: const Duration(seconds: 30),
+        );
         if (file == null) return null;
         if (await file.length() > maxEvidenceBytes) {
           throw const FormatException('Evidence exceeds 16 MB');
         }
         evidence = CapFormEvidence(
           name: file.name,
-          mimeType:
-              file.mimeType ??
-              (q.type == CapQuestionType.image ? 'image/jpeg' : 'video/mp4'),
+          mimeType: file.mimeType ?? 'video/mp4',
           bytes: await file.readAsBytes(),
         );
       case CapQuestionType.signature:
@@ -59,24 +93,7 @@ class CapNativeFormCapture {
           MaterialPageRoute(builder: (_) => const _ScannerScreen()),
         );
       case CapQuestionType.location:
-        if (!await Geolocator.isLocationServiceEnabled()) {
-          throw const FormatException('Location services disabled');
-        }
-        var permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) {
-          permission = await Geolocator.requestPermission();
-        }
-        if (permission == LocationPermission.denied ||
-            permission == LocationPermission.deniedForever) {
-          throw const FormatException('Location permission denied');
-        }
-        final position = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 20),
-          ),
-        );
-        text = '${position.latitude},${position.longitude}';
+        text = await getCurrentLocation();
       default:
         return null;
     }

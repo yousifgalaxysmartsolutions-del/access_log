@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../features/incidents/presentation/incident_action_configuration_screen.dart';
+import '../../features/incidents/presentation/bloc/incident_action_configuration_cubit.dart';
 import '../../core/di/injection.dart';
 import '../../features/incidents/domain/actions/incident_available_action.dart';
 import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
@@ -129,28 +131,50 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
     _loadPanelFor(tabController.index);
   }
 
-  void _onIncidentActionSelected(IncidentAvailableAction action) {
-
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Action selected: ${action.actionTypeId}, ${action.flow},"
-
+  bool _openingRequirements = false;
+  Future<void> _onIncidentActionSelected(IncidentAvailableAction action) async {
+    if (!IncidentActionConfigurationCubit.supports(action)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.tr(
+              'Request flows are not part of this configuration step.',
+              'مسارات الطلبات ليست ضمن مرحلة إعدادات الإجراءات.',
+            ),
+          ),
         ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    // ScaffoldMessenger.of(context).showSnackBar(
-    //   SnackBar(
-    //     content: Text(
-    //       context.tr(
-    //         'Action execution will be connected in the next sprint.',
-    //         'سيتم ربط تنفيذ الإجراء في المرحلة القادمة.',
-    //       ),
-    //     ),
-    //     behavior: SnackBarBehavior.floating,
-    //   ),
-    // );
+      );
+      return;
+    }
+    if (_openingRequirements) return;
+    _openingRequirements = true;
+    try {
+      final changed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => IncidentActionConfigurationScreen(
+            action: action,
+            incidentId: widget.incident.incidentId,
+          ),
+        ),
+      );
+      if (changed == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.tr(
+                'Action completed successfully',
+                'تم تنفيذ الإجراء بنجاح',
+              ),
+            ),
+          ),
+        );
+        _loadGeneral();
+        _loadTimeline();
+        _loadRelatedRequests();
+      }
+    } finally {
+      _openingRequirements = false;
+    }
   }
 
   @override

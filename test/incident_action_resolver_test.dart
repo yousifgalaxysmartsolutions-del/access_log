@@ -1,4 +1,13 @@
 import 'dart:async';
+import 'package:access_log_plus/features/incidents/domain/repositories/incident_execution_repository.dart';
+import 'package:access_log_plus/features/incidents/domain/actions/incident_execution_context.dart';
+import 'package:access_log_plus/features/incidents/domain/usecases/incident_execution_use_case.dart';
+import 'package:access_log_plus/features/incidents/data/models/incident_action_configuration_models.dart';
+import 'package:access_log_plus/features/incidents/domain/repositories/incident_action_configuration_repository.dart';
+import 'package:access_log_plus/features/incidents/domain/usecases/get_incident_action_configuration_use_case.dart';
+import 'package:access_log_plus/features/forms/data/models/cap_form_models.dart';
+import 'package:access_log_plus/features/forms/domain/repositories/cap_form_repository.dart';
+import 'package:access_log_plus/features/forms/domain/usecases/cap_form_use_cases.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +32,38 @@ import 'package:access_log_plus/screens/incidents/incident_details_screen.dart';
 import 'package:access_log_plus/widgets/app_button.dart';
 import 'incident_lookup_test.dart' show fixture, MemoryStorage;
 import 'incident_details_general_tab_test.dart' show buildIncident;
+
+class _NoRequirements implements IncidentActionConfigurationRepository {
+  final ids = <int>[];
+  @override
+  Future<Result<IncidentActionConfiguration?>> getConfiguration(
+    int actionTypeId,
+  ) async {
+    ids.add(actionTypeId);
+    return const Success(null);
+  }
+}
+
+class _UnusedForms implements CapFormRepository {
+  @override
+  Future<Result<CapQuestionForm>> load(int formId) =>
+      throw StateError('No form for null config');
+  @override
+  Future<Result<void>> submit(IncidentFormSubmission submission) =>
+      throw StateError('No final execution');
+}
+
+class _UnusedExecution implements IncidentExecutionRepository {
+  final executed = <IncidentExecutionContext>[];
+  @override
+  Future<Result<List<IncidentTeamMember>>> getTeam() =>
+      throw StateError('No team load before continue');
+  @override
+  Future<Result<void>> execute(IncidentExecutionContext context) async {
+    executed.add(context);
+    return const Success(null);
+  }
+}
 
 class _Lookup extends DemoIncidentRepository {
   IncidentLookupData value = IncidentLookupData.fromJson(
@@ -284,7 +325,7 @@ void main() {
   });
 
   testWidgets(
-    'real details wins over stale list; no duplicate fetch or action execution',
+    'real details drives action; explicit confirmation executes once and refreshes details',
     (tester) async {
       final details = _Details()
         ..gate = Completer<Result<IncidentDetailsData>>();
@@ -295,6 +336,19 @@ void main() {
       );
       services.registerFactory<IncidentDetailsBloc>(() => bloc);
       services.registerSingleton<IncidentActionResolverService>(resolver);
+      final configuration = _NoRequirements();
+      services.registerSingleton<IncidentExecutionRepository>(
+        _UnusedExecution(),
+      );
+      services.registerSingleton<IncidentExecutionUseCase>(
+        IncidentExecutionUseCase(services<IncidentExecutionRepository>()),
+      );
+      services.registerSingleton<GetIncidentActionConfigurationUseCase>(
+        GetIncidentActionConfigurationUseCase(configuration),
+      );
+      services.registerSingleton<GetCapFormUseCase>(
+        GetCapFormUseCase(_UnusedForms()),
+      );
       await tester.pumpWidget(
         app(IncidentDetailsScreen(incident: buildIncident())),
       );
@@ -324,13 +378,22 @@ void main() {
       await tester.tap(
         find.descendant(of: area, matching: find.text('Approve')),
       );
-      await tester.pump();
-      expect(
-        find.text('Action execution will be connected in the next sprint.'),
-        findsOneWidget,
-      );
+      await tester.pumpAndSettle();
+      expect(configuration.ids, [3]);
+      expect(find.text('Ready to continue'), findsOneWidget);
       expect(bloc.state.generalData, same(before));
       expect(details.calls, 1);
+      final executor =
+          services<IncidentExecutionRepository>() as _UnusedExecution;
+      expect(executor.executed, isEmpty);
+      await tester.tap(find.text('Confirm action'));
+      await tester.pumpAndSettle();
+      expect(executor.executed, hasLength(1));
+      expect(executor.executed.single.incidentId, buildIncident().incidentId);
+      expect(executor.executed.single.actionTypeId, 3);
+      expect(executor.executed.single.newStatusId, 3);
+      expect(details.calls, 2);
+      expect(find.text('Action completed successfully'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     },
   );

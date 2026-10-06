@@ -5,6 +5,8 @@ import '../../../../core/network/api_response.dart';
 import '../../../../core/network/cap/cap_request.dart';
 import '../../data/models/incident_details_models.dart';
 import '../../data/models/incident_list_models.dart';
+import '../models/incident_action_configuration_models.dart';
+import '../../domain/actions/incident_execution_context.dart';
 
 part 'incident_api_service.g.dart';
 
@@ -15,6 +17,19 @@ part 'incident_api_service.g.dart';
 @RestApi()
 abstract class IncidentApiService {
   factory IncidentApiService(Dio dio, {String? baseUrl}) = _IncidentApiService;
+
+  @POST('CAP/CapAuth/GetMyTeamUser')
+  Future<ApiResponse> getMyTeamUser(@Body() CapRequest<Null> body);
+
+  @POST('CAP/CapIncident/AssignIncident')
+  Future<ApiResponse> assignIncident(
+    @Body() CapRequest<IncidentExecutionContext> body,
+  );
+
+  @POST('CAP/CapConfiguration/GetIncedientActionConfiguration')
+  Future<ApiResponse> getIncidentActionConfiguration(
+    @Body() CapRequest<IncidentActionConfigurationRequest> body,
+  );
 
   @POST('CAP/CapLookup/GetAllIncidentLookup')
   Future<ApiResponse> getAllIncidentLookup(@Body() CapRequest<Null> body);

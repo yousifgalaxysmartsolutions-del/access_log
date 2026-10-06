@@ -112,9 +112,8 @@ class CapFormCubit extends Cubit<CapFormState> {
   ]);
 
   /// No API is invoked. Returns only validated visible answers.
-  /// CAP's sample defines a scalar OptionAnswer: multi-selection encoding needs
-  /// backend confirmation before allowing multiple values onto the wire.
-  List<CapFormAnswer>? confirmedAnswers() {
+  /// Each selected option remains its own answer for the parent question.
+  List<CapFormAnswer>? confirmedAnswers({bool forSubmission = true}) {
     if (isClosed ||
         state.form == null ||
         state.loading ||
@@ -139,8 +138,6 @@ class CapFormCubit extends Cubit<CapFormState> {
         errors[q.id] = CapFormError.unsupported;
       } else if (q.required && filled.isEmpty) {
         errors[q.id] = CapFormError.required;
-      } else if (q.type == CapQuestionType.multiChoice && filled.length > 1) {
-        errors[q.id] = CapFormError.multipleOptionsContract;
       } else if (filled.any((a) => !_valid(q, a))) {
         errors[q.id] = CapFormError.invalid;
       } else {
@@ -234,15 +231,6 @@ class CapFormCubit extends Cubit<CapFormState> {
     } on Exception {
       failed(
         const ServiceFailure('form_encoding', 'Unable to encode form evidence'),
-      );
-      return;
-    }
-    if (encoded.any((a) => a.evidence != null)) {
-      failed(
-        const ServiceFailure(
-          'form_evidence_contract',
-          'Evidence encoding requires the confirmed CAP API contract',
-        ),
       );
       return;
     }

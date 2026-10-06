@@ -1,3 +1,9 @@
+import '../../features/incidents/data/repositories/incident_action_configuration_repository_impl.dart';
+import '../../features/incidents/data/repositories/incident_execution_repository_impl.dart';
+import '../../features/incidents/domain/repositories/incident_execution_repository.dart';
+import '../../features/incidents/domain/usecases/incident_execution_use_case.dart';
+import '../../features/incidents/domain/repositories/incident_action_configuration_repository.dart';
+import '../../features/incidents/domain/usecases/get_incident_action_configuration_use_case.dart';
 import 'package:dio/dio.dart';
 import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
 import '../../features/incidents/data/incident_lookup_store.dart';
@@ -140,6 +146,7 @@ Future<void> configureDependencies({
   registerDashboardDependencies(session, config);
   registerRequestDependencies();
   registerFormDependencies();
+  registerIncidentActionConfigurationDependencies();
   final auth = services<AuthRepository>();
   dio.interceptors.add(AuthInterceptor(dio, session, auth.refresh));
   // Finish restoration before runApp chooses its initial authenticated route.
@@ -308,6 +315,40 @@ void registerFormDependencies() {
     () => CapFormCubit(
       services<GetCapFormUseCase>(),
       submit: services<SubmitIncidentFormUseCase>(),
+    ),
+  );
+}
+
+void registerIncidentActionConfigurationDependencies() {
+  if (!services.isRegistered<IncidentExecutionUseCase>()) {
+    services.registerLazySingleton<IncidentExecutionUseCase>(
+      () => IncidentExecutionUseCase(services<IncidentExecutionRepository>()),
+    );
+  }
+  if (!services.isRegistered<IncidentExecutionRepository>()) {
+    services.registerLazySingleton<IncidentExecutionRepository>(
+      () => IncidentExecutionRepositoryImpl(
+        services<IncidentApiService>(),
+        services<ApiRequestContextProvider>(),
+        services<CapFormRepository>(),
+      ),
+    );
+  }
+  if (services.isRegistered<IncidentActionConfigurationRepository>()) return;
+  if (!services.isRegistered<IncidentApiService>()) {
+    services.registerLazySingleton<IncidentApiService>(
+      () => IncidentApiService(services<Dio>()),
+    );
+  }
+  services.registerLazySingleton<IncidentActionConfigurationRepository>(
+    () => IncidentActionConfigurationRepositoryImpl(
+      services<IncidentApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<GetIncidentActionConfigurationUseCase>(
+    () => GetIncidentActionConfigurationUseCase(
+      services<IncidentActionConfigurationRepository>(),
     ),
   );
 }

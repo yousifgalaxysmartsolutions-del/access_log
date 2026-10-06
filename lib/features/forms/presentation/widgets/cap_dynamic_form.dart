@@ -19,11 +19,13 @@ class CapDynamicForm extends StatelessWidget {
     required this.onConfirmed,
     required this.onRetry,
     this.capture,
+    this.forSubmission = true,
   });
   final CapFormCubit cubit;
   final ValueChanged<List<CapFormAnswer>> onConfirmed;
   final VoidCallback onRetry;
   final CapFormCapture? capture;
+  final bool forSubmission;
   @override
   Widget build(BuildContext context) => BlocBuilder<CapFormCubit, CapFormState>(
     bloc: cubit,
@@ -152,7 +154,9 @@ class CapDynamicForm extends StatelessWidget {
                     ? null
                     : () {
                         FocusScope.of(context).unfocus();
-                        final answers = cubit.confirmedAnswers();
+                        final answers = cubit.confirmedAnswers(
+                          forSubmission: forSubmission,
+                        );
                         if (answers != null) onConfirmed(answers);
                       },
               ),

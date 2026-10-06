@@ -55,19 +55,8 @@ class CapFormRepositoryImpl implements CapFormRepository {
 
   @override
   Future<Result<void>> submit(IncidentFormSubmission submission) async {
-    if (submission.answers.any((a) => a.evidence != null)) {
-      return FailureResult(
-        ServiceFailure(
-          'form_evidence_contract',
-          _message(
-            'Evidence encoding requires API confirmation',
-            'صيغة إرسال الإثبات تحتاج تأكيد الـAPI',
-          ),
-        ),
-      );
-    }
     if ([
-      submission.formId,
+      if (submission.formId != null) submission.formId!,
       submission.incidentId,
       submission.actionTypeId,
       submission.newStatusId,

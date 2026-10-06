@@ -230,7 +230,7 @@ void main() {
     },
   );
   test(
-    'local evidence is immutable, never serialized silently and never logged',
+    'local evidence is immutable, serialized as raw bytes and never logged',
     () {
       final bytes = Uint8List.fromList([1, 2, 3]);
       final evidence = CapFormEvidence(
@@ -246,14 +246,14 @@ void main() {
         questionTypeId: 7,
         evidence: evidence,
       );
-      expect(answer.toJson, throwsFormatException);
+      expect(answer.toJson()['AnswerBytes'], [1, 2, 3]);
       expect(redactCapPayload({'AnswerBytes': 'private-content'}), {
         'AnswerBytes': '[REDACTED]',
       });
     },
   );
   test(
-    'unconfirmed evidence wire encoding blocks network submission without losing evidence',
+    'confirmed evidence wire encoding submits raw bytes without losing evidence',
     () async {
       final repository = _Repository()
         ..form = CapQuestionForm(
@@ -286,11 +286,17 @@ void main() {
         actionTypeId: 3,
         remark: '',
       );
-      expect(repository.submissions, 0);
-      expect(
-        (cubit.state.submissionFailure as ServiceFailure).code,
-        'form_evidence_contract',
-      );
+      expect(repository.submissions, 1);
+      expect(cubit.state.submissionFailure, isNull);
+      expect(repository.lastSubmission!.toJson()['Answers'], [
+        {
+          'QuestionId': 1,
+          'QuestionTypeId': 4,
+          'TextAnswer': '',
+          'AnswerBytes': [1],
+          'OptionAnswer': 0,
+        },
+      ]);
       expect(cubit.state.answers[1]!.single.evidence, isNotNull);
     },
   );
@@ -415,7 +421,7 @@ void main() {
     expect(cubit.state.errors[1], CapFormError.unsupported);
   });
   test(
-    'multi choice is retained locally but unconfirmed wire format is blocked',
+    'multi choice emits separate answers with the selected option IDs',
     () async {
       final question = CapFormQuestion(
         id: 1,
@@ -434,8 +440,10 @@ void main() {
       await cubit.load(1);
       cubit.options(question, {1, 2});
       expect(cubit.state.answers[1]!.length, 2);
-      expect(cubit.confirmedAnswers(), isNull);
-      expect(cubit.state.errors[1], CapFormError.multipleOptionsContract);
+      final answers = cubit.confirmedAnswers()!;
+      expect(answers.map((a) => a.questionId), [1, 1]);
+      expect(answers.map((a) => a.optionId), [1, 2]);
+      expect(cubit.state.errors, isEmpty);
     },
   );
   test(
@@ -487,6 +495,9 @@ void main() {
       'ActionTypeId': 3,
       'QuestionFormId': 1085,
       'Remark': 'approve',
+      'lat': '',
+      'long': '',
+      'photo': '',
       'Answers': [
         {
           'QuestionId': 708,

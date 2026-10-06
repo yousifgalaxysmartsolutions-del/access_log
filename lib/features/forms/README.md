@@ -35,16 +35,22 @@ does not call an API. `CapIncidentFormScreen` provides the submission coordinato
   success result; unsaved-change confirmation; no auto-retry of mutations.
 - Arabic/English, directional layout, scalable text, theme-aware controls.
 
-## Contract boundaries awaiting the next specification
+## Confirmed action execution contract
 
-1. Which incident buttons open this screen and where their FormId comes from.
-2. CAP binary encoding: supplied samples only show AnswerBytes:null. STC uses
-   different field names/encodings, so they are not assumed compatible. Captured
-   files are `CapFormEvidence` (immutable bytes/name/MIME), separate from the wire
-   DTO. `encodeAnswers` is the explicit extension point for the confirmed CAP
-   encoding. Without it, evidence submission fails locally, retaining the file.
-3. CAP multi-selection encoding: the sample has scalar OptionAnswer. Multiple
-   selections work locally but are blocked from submission until documented.
+Incident Details now opens the shared action-configuration coordinator with the
+real IncidentId and the selected resolver action. Requirements are collected once
+into IncidentExecutionContext. Assign continues to team selection and
+AssignIncident; other supported actions reuse this feature's IncidentStatusChange.
+The embedded form only collects answers; it never submits them separately.
+
+- No form: QuestionFormId is null and Answers is empty.
+- Top-level lat/long are separate strings; GPS form answers remain unchanged.
+- Top-level photo is Base64; AnswerBytes contains raw bytes (JSON integer array).
+- Captured form evidence uses the existing answer serializer.
+- Each selected multi-choice option is a separate answer for the same parent
+  QuestionId, with its own OptionAnswer ID.
+- Failed execution retains the context; retry is explicit. Successful execution
+  returns true to Incident Details and refreshes server data.
 
 No production endpoints were called during development. Automated tests use
 fake transports/capture callbacks. Physical camera, microphone, scanner and GPS
