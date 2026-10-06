@@ -20,7 +20,7 @@ abstract final class CapParseDiagnostics {
   /// Matches every credential-bearing key so it can never reach a log.
   static final RegExp sensitiveKeys = RegExp(
     r'password|passwd|pwd|token|authorization|cookie|secret|apikey|api_key'
-    r'|credential|bearer|jwt|otp|signature|sessionid',
+    r'|credential|bearer|jwt|otp|signature|sessionid|answerbytes|questionbyte',
     caseSensitive: false,
   );
 

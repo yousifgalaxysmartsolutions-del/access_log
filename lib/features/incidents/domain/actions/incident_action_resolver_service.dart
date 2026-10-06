@@ -2,16 +2,14 @@ import '../../data/incident_lookup_store.dart';
 import 'incident_available_action.dart';
 
 class IncidentActionResolverService {
-  const IncidentActionResolverService(this._lookup);
-  final IncidentLookupStore _lookup;
+  // Keep the existing constructor contract; local mappings need no lookup state.
+  const IncidentActionResolverService(IncidentLookupStore lookup);
 
-  List<IncidentAvailableAction> resolve({
-    required int? incidentStatusId,
-  }) {
+  List<IncidentAvailableAction> resolve({required int? incidentStatusId}) {
     if (incidentStatusId == null) return const [];
 
     return switch (incidentStatusId) {
-    // Need Assign
+      // Need Assign
       1 => const [
         IncidentAvailableAction(
           type: IncidentAction.assign,
@@ -25,7 +23,7 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // Need Approval
+      // Need Approval
       2 => const [
         IncidentAvailableAction(
           type: IncidentAction.approve,
@@ -39,8 +37,7 @@ class IncidentActionResolverService {
         ),
       ],
 
-
-    // Pending
+      // Pending
       3 => const [
         IncidentAvailableAction(
           type: IncidentAction.hold,
@@ -54,7 +51,7 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // In Process
+      // In Process
       4 => const [
         IncidentAvailableAction(
           type: IncidentAction.hold,
@@ -73,7 +70,7 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // Completed
+      // Completed
       5 => const [
         IncidentAvailableAction(
           type: IncidentAction.departureRequest,
@@ -82,10 +79,8 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // Cancelled / Hold / Rejected / Unknown
+      // Cancelled / Hold / Rejected / Unknown
       _ => const [],
     };
   }
-
-  static String _key(String? value) => value?.trim().toLowerCase() ?? '';
 }

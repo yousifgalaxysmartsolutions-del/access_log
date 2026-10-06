@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Capture evidence and scan codes when you choose a form field.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Record audio or video evidence when you choose a form field.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Attach evidence selected by you to a form.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Fill a form location field only when you request your current location.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

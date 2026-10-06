@@ -49,6 +49,12 @@ import '../../features/incidents/presentation/bloc/incident_details_bloc.dart';
 import '../network/cap/api_request_context.dart';
 import '../network/cap/cap_device_app_info.dart';
 
+import '../../features/forms/data/api/cap_form_api_service.dart';
+import '../../features/forms/data/repositories/cap_form_repository_impl.dart';
+import '../../features/forms/domain/repositories/cap_form_repository.dart';
+import '../../features/forms/domain/usecases/cap_form_use_cases.dart';
+import '../../features/forms/presentation/bloc/cap_form_cubit.dart';
+
 final services = GetIt.instance;
 Future<void> configureDependencies({
   AppEnvironment? environment,
@@ -133,6 +139,7 @@ Future<void> configureDependencies({
   );
   registerDashboardDependencies(session, config);
   registerRequestDependencies();
+  registerFormDependencies();
   final auth = services<AuthRepository>();
   dio.interceptors.add(AuthInterceptor(dio, session, auth.refresh));
   // Finish restoration before runApp chooses its initial authenticated route.
@@ -275,6 +282,32 @@ void registerDashboardDependencies(
       getIncidentDetails: services<GetIncidentDetailsUseCase>(),
       getIncidentTimeline: services<GetIncidentTimelineUseCase>(),
       getIncidentRequests: services<GetIncidentRequestsUseCase>(),
+    ),
+  );
+}
+
+/// Registers lazy form dependencies without making API requests.
+void registerFormDependencies() {
+  if (services.isRegistered<CapFormRepository>()) return;
+  services.registerLazySingleton<CapFormApiService>(
+    () => CapFormApiService(services<Dio>()),
+  );
+  services.registerLazySingleton<CapFormRepository>(
+    () => CapFormRepositoryImpl(
+      services<CapFormApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<GetCapFormUseCase>(
+    () => GetCapFormUseCase(services<CapFormRepository>()),
+  );
+  services.registerLazySingleton<SubmitIncidentFormUseCase>(
+    () => SubmitIncidentFormUseCase(services<CapFormRepository>()),
+  );
+  services.registerFactory<CapFormCubit>(
+    () => CapFormCubit(
+      services<GetCapFormUseCase>(),
+      submit: services<SubmitIncidentFormUseCase>(),
     ),
   );
 }
