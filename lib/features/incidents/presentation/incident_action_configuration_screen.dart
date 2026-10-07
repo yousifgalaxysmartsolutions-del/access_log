@@ -1,18 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../requests/domain/usecases/incident_request_use_case.dart';
-import '../../../core/di/injection.dart';
 import '../../../core/localization/app_strings.dart';
 import '../../../widgets/app_button.dart';
 import '../../forms/data/models/cap_form_models.dart';
-import '../../forms/domain/usecases/cap_form_use_cases.dart';
-import '../../forms/presentation/bloc/cap_form_cubit.dart';
 import '../../forms/presentation/widgets/cap_dynamic_form.dart';
 import '../../forms/presentation/widgets/cap_form_capture.dart';
 import '../../forms/presentation/widgets/cap_photo_editor.dart';
 import '../domain/actions/incident_available_action.dart';
-import '../domain/usecases/incident_execution_use_case.dart';
-import '../domain/usecases/get_incident_action_configuration_use_case.dart';
+import 'incident_action_flow_factory.dart';
 import 'bloc/incident_action_configuration_cubit.dart';
 
 class IncidentActionConfigurationScreen extends StatefulWidget {
@@ -22,12 +18,15 @@ class IncidentActionConfigurationScreen extends StatefulWidget {
     this.incidentId,
     this.coordinator,
     this.requestNewStatusId = IncidentRequestUseCase.confirmedNewStatusId,
+    this.siteLatitude,
+    this.siteLongitude,
   });
   final IncidentAvailableAction action;
   final int? incidentId;
 
   /// Provided explicitly by a confirmed backend execution policy, never UI inference.
   final int? requestNewStatusId;
+  final double? siteLatitude, siteLongitude;
 
   /// This route owns and closes the coordinator, including injected instances.
   final IncidentActionConfigurationCubit? coordinator;
@@ -96,19 +95,13 @@ class _IncidentActionConfigurationScreenState
     super.initState();
     coordinator =
         widget.coordinator ??
-        IncidentActionConfigurationCubit(
+        IncidentActionFlowFactory.create(
           action: widget.action,
           incidentId: widget.incidentId,
-          executor: services<IncidentExecutionUseCase>(),
-          requestExecutor: widget.action.flow == IncidentActionFlow.request
-              ? services<IncidentRequestUseCase>()
-              : null,
           requestNewStatusId: widget.requestNewStatusId,
-          getConfiguration: services<GetIncidentActionConfigurationUseCase>(),
-          form: CapFormCubit(services<GetCapFormUseCase>()),
-          getLocation: capture.getCurrentLocation,
-          handlePhoto: (level) =>
-              resolveActionPhoto(level, capturePhoto: capture.capturePhoto),
+          siteLatitude: widget.siteLatitude,
+          siteLongitude: widget.siteLongitude,
+          capture: capture,
         );
     if (coordinator.state.stage == ActionConfigurationStage.initial) {
       coordinator.start().then((_) => continueWithoutRequirements());

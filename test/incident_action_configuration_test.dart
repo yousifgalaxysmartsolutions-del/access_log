@@ -123,10 +123,12 @@ void main() {
     IncidentAvailableAction action = _assign,
     Future<String?> Function()? location,
     ActionPhotoHandler? photo,
+    Future<Result<void>> Function(String)? validateLocation,
   }) {
     final result = IncidentActionConfigurationCubit(
       action: action,
       incidentId: 26,
+      validateLocation: validateLocation,
       getConfiguration: GetIncidentActionConfigurationUseCase(config),
       form: CapFormCubit(GetCapFormUseCase(forms)),
       getLocation:
@@ -511,6 +513,79 @@ void main() {
     gps.complete('30,31');
     await capture;
   });
+  test(
+    'GPS preflight blocks form outside site and retains valid location inside',
+    () async {
+      config.result = const Success(
+        IncidentActionConfiguration(
+          gpsRequired: true,
+          photoRequiredLevel: 0,
+          questionFormId: '1085',
+        ),
+      );
+      final outside = coordinator(
+        validateLocation: (location) async {
+          trace.add('geofence');
+          return const FailureResult(ValidationFailure('Outside site'));
+        },
+      );
+      await outside.start();
+      expect(outside.state.stage, ActionConfigurationStage.failure);
+      expect(forms.ids, isEmpty);
+      expect(trace, ['config', 'gps', 'geofence']);
+      trace.clear();
+      final inside = coordinator(
+        validateLocation: (location) async {
+          trace.add('geofence');
+          return const Success(null);
+        },
+      );
+      await inside.start();
+      expect(trace, ['config', 'gps', 'geofence', 'form']);
+      expect(inside.state.location, '30,31');
+      expect(forms.ids, [1085]);
+    },
+  );
+  test('Null configuration / GPS false never invoke preflight', () async {
+    for (final result in <IncidentActionConfiguration?>[
+      null,
+      const IncidentActionConfiguration(
+        gpsRequired: false,
+        photoRequiredLevel: 0,
+      ),
+    ]) {
+      config.result = Success(result);
+      final flow = coordinator(
+        validateLocation: (_) => throw StateError('Must not validate GPS'),
+      );
+      await flow.start();
+      expect(flow.state.requirementsValid, true);
+      expect(flow.state.location, isNull);
+    }
+    expect(trace, ['config', 'config']);
+  });
+  test(
+    'Refresh outside site clears verified location and disables continuation',
+    () async {
+      config.result = const Success(
+        IncidentActionConfiguration(gpsRequired: true, photoRequiredLevel: 0),
+      );
+      var outside = false;
+      final flow = coordinator(
+        validateLocation: (_) async => outside
+            ? const FailureResult(ValidationFailure('Outside site'))
+            : const Success(null),
+      );
+      await flow.start();
+      expect(flow.state.requirementsValid, true);
+      outside = true;
+      await flow.refreshLocation();
+      expect(flow.state.location, isNull);
+      expect(flow.state.locationFailure, isNotNull);
+      expect(flow.state.execution, isNull);
+      expect(flow.state.requirementsValid, false);
+    },
+  );
   test(
     'repository preserves exact endpoint/envelope; success-null vs failure-null',
     () async {

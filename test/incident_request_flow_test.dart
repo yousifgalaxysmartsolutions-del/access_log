@@ -216,6 +216,7 @@ void main() {
     int? status,
     IncidentAction type = IncidentAction.interventionRequest,
     int id = 1,
+    Future<Result<void>> Function(String)? validateLocation,
   }) {
     final cubit = IncidentActionConfigurationCubit(
       action: IncidentAvailableAction(
@@ -225,6 +226,7 @@ void main() {
         flow: IncidentActionFlow.request,
       ),
       incidentId: 17,
+      validateLocation: validateLocation,
       getConfiguration: GetIncidentActionConfigurationUseCase(_Actions()),
       requestExecutor: IncidentRequestUseCase(requests),
       requestNewStatusId: status,
@@ -257,6 +259,27 @@ void main() {
     elapsed = Duration.zero;
   });
 
+  test(
+    'Request preflight validates GPS before form and blocks outside location',
+    () async {
+      requests.configuration = const RequestConfiguration(
+        gpsRequired: true,
+        photoRequiredLevel: 0,
+        questionFormId: '1085',
+      );
+      flow = build(
+        status: 1,
+        validateLocation: (_) async =>
+            const FailureResult(ValidationFailure('Outside site')),
+      );
+      await flow.start();
+      expect(flow.state.stage, ActionConfigurationStage.failure);
+      expect(forms.ids, isEmpty);
+      expect(gpsCalls, 1);
+      await flow.continueExecution();
+      expect(requests.calls, isEmpty);
+    },
+  );
   for (final formId in [null, '', '   ']) {
     test(
       'No form ($formId), GPS false, photo zero skips all collections',

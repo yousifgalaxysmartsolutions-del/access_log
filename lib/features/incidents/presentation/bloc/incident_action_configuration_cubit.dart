@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/error/exception_mapper.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/network/result.dart';
+import '../../../../core/network/cap/cap_locale_holder.dart';
 import '../../../forms/data/models/cap_form_models.dart';
 import '../../../forms/presentation/bloc/cap_form_cubit.dart';
 import '../../data/models/incident_action_configuration_models.dart';
@@ -176,6 +177,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     this.executor,
     this.requestExecutor,
     this.requestNewStatusId,
+    this.validateLocation,
     Duration Function()? formElapsed,
   }) : super(const ActionConfigurationState(ActionConfigurationStage.initial)) {
     _formElapsed = formElapsed ?? (() => _formTimer.elapsed);
@@ -192,6 +194,9 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
 
   /// Explicit execution input only; never inferred from actions/status/labels.
   final int? requestNewStatusId;
+
+  /// Shared preflight/rerefresh gate supplied by the route composition.
+  final Future<Result<void>> Function(String location)? validateLocation;
   final Stopwatch _formTimer = Stopwatch();
   late final Duration Function() _formElapsed;
   int? _submittedMinutes;
@@ -314,6 +319,37 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
         stage(ActionConfigurationStage.readyToContinue);
         return;
       }
+      if (configuration.gpsRequired && validateLocation != null) {
+        stage(ActionConfigurationStage.requestingLocation);
+        String? location;
+        final unavailable = ValidationFailure(
+          CapLocaleHolder.instance.isArabic
+              ? 'تعذّر تحديد موقعك. فعّل خدمة الموقع واسمح للتطبيق بالوصول إليه، ثم حاول مجددًا.'
+              : 'Unable to determine your location. Enable location services and grant location permission, then retry.',
+        );
+        try {
+          location = await getLocation();
+        } on Exception {
+          if (current()) {
+            stage(ActionConfigurationStage.failure, failure: unavailable);
+          }
+          return;
+        }
+        if (!current()) return;
+        if (!_validLocation(location)) {
+          stage(ActionConfigurationStage.failure, failure: unavailable);
+          return;
+        }
+        final checked = await validateLocation!(location!);
+        if (!current()) return;
+        switch (checked) {
+          case FailureResult(:final failure):
+            stage(ActionConfigurationStage.failure, failure: failure);
+            return;
+          case Success():
+            emit(state.requirementsState(location: location));
+        }
+      }
       final rawId = configuration.questionFormId?.trim();
       if (rawId == null || rawId.isEmpty) {
         stage(ActionConfigurationStage.formReady);
@@ -414,9 +450,26 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     try {
       final location = await getLocation();
       if (isClosed || revision != _revision) return;
+      if (_validLocation(location) && validateLocation != null) {
+        final checked = await validateLocation!(location!);
+        if (isClosed || revision != _revision) return;
+        if (checked case FailureResult(:final failure)) {
+          emit(
+            state.requirementsState(
+              location: null,
+              locationBusy: false,
+              locationFailure: failure,
+            ),
+          );
+          _syncRequirements();
+          return;
+        }
+      }
       emit(
         state.requirementsState(
-          location: _validLocation(location) ? location : state.location,
+          location: _validLocation(location)
+              ? location
+              : (validateLocation == null ? state.location : null),
           locationBusy: false,
           locationFailure: _validLocation(location)
               ? null
@@ -427,6 +480,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
       if (isClosed || revision != _revision) return;
       emit(
         state.requirementsState(
+          location: validateLocation == null ? state.location : null,
           locationBusy: false,
           locationFailure: ExceptionMapper.map(error),
         ),

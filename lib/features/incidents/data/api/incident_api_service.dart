@@ -16,6 +16,8 @@ part 'incident_api_service.g.dart';
 /// and 401 refresh handling apply.
 @RestApi()
 abstract class IncidentApiService {
+  @POST('CAP/CapConfiguration/GetSystemConfiguration')
+  Future<ApiResponse> getSystemConfiguration(@Body() CapRequest<Null> body);
   factory IncidentApiService(Dio dio, {String? baseUrl}) = _IncidentApiService;
 
   @POST('CAP/CapAuth/GetMyTeamUser')

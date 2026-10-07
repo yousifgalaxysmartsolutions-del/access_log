@@ -1,4 +1,7 @@
 import '../../features/incidents/data/repositories/incident_action_configuration_repository_impl.dart';
+import '../../features/incidents/data/repositories/system_gps_configuration_repository_impl.dart';
+import '../../features/incidents/domain/repositories/system_gps_configuration_repository.dart';
+import '../../features/incidents/domain/usecases/incident_geofence_use_case.dart';
 import '../../features/requests/data/repositories/request_creation_repository_impl.dart';
 import '../../features/requests/domain/repositories/request_creation_repository.dart';
 import '../../features/requests/domain/usecases/incident_request_use_case.dart';
@@ -332,6 +335,18 @@ void registerFormDependencies() {
 }
 
 void registerIncidentActionConfigurationDependencies() {
+  if (!services.isRegistered<SystemGpsConfigurationRepository>()) {
+    services.registerLazySingleton<SystemGpsConfigurationRepository>(
+      () => SystemGpsConfigurationRepositoryImpl(
+        services<IncidentApiService>(),
+        services<ApiRequestContextProvider>(),
+      ),
+    );
+    services.registerLazySingleton<IncidentGeofenceUseCase>(
+      () =>
+          IncidentGeofenceUseCase(services<SystemGpsConfigurationRepository>()),
+    );
+  }
   if (!services.isRegistered<IncidentExecutionUseCase>()) {
     services.registerLazySingleton<IncidentExecutionUseCase>(
       () => IncidentExecutionUseCase(services<IncidentExecutionRepository>()),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../features/incidents/presentation/incident_action_configuration_screen.dart';
 import '../../features/incidents/presentation/bloc/incident_action_configuration_cubit.dart';
+import '../../features/incidents/presentation/incident_action_flow_factory.dart';
 import '../../core/di/injection.dart';
 import '../../features/incidents/domain/actions/incident_available_action.dart';
 import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
@@ -148,12 +149,80 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
     }
     if (_openingRequirements) return;
     _openingRequirements = true;
+    IncidentActionConfigurationCubit? prepared;
+    var transferred = false;
     try {
+      final site = detailsBloc.state.generalData?.location;
+      prepared = IncidentActionFlowFactory.create(
+        action: action,
+        incidentId: widget.incident.incidentId,
+        siteLatitude: site?.latitude,
+        siteLongitude: site?.longitude,
+      );
+      final navigator = Navigator.of(context);
+      final progress = DialogRoute<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content:
+                BlocBuilder<
+                  IncidentActionConfigurationCubit,
+                  ActionConfigurationState
+                >(
+                  bloc: prepared,
+                  builder: (context, state) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(
+                        state.stage ==
+                                ActionConfigurationStage.requestingLocation
+                            ? context.tr(
+                                'Checking your location…',
+                                'جارٍ التحقق من وجودك في موقع البلاغ…',
+                              )
+                            : context.tr(
+                                'Preparing requirements…',
+                                'جارٍ تجهيز المتطلبات…',
+                              ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+          ),
+        ),
+      );
+      navigator.push(progress);
+      try {
+        await prepared.start();
+      } finally {
+        if (progress.isActive && navigator.mounted) {
+          navigator.removeRoute(progress);
+        }
+      }
+      if (!mounted) return;
+      if (prepared.state.stage == ActionConfigurationStage.failure) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              prepared.state.failure?.message ??
+                  context.tr('Unable to prepare action', 'تعذّر تجهيز الإجراء'),
+            ),
+          ),
+        );
+        return;
+      }
+      transferred = true;
       final changed = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => IncidentActionConfigurationScreen(
             action: action,
             incidentId: widget.incident.incidentId,
+            coordinator: prepared,
           ),
         ),
       );
@@ -173,6 +242,7 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
         _loadRelatedRequests();
       }
     } finally {
+      if (!transferred) await prepared?.close();
       _openingRequirements = false;
     }
   }
