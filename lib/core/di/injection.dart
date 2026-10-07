@@ -1,4 +1,7 @@
 import '../../features/incidents/data/repositories/incident_action_configuration_repository_impl.dart';
+import '../../features/requests/data/repositories/request_creation_repository_impl.dart';
+import '../../features/requests/domain/repositories/request_creation_repository.dart';
+import '../../features/requests/domain/usecases/incident_request_use_case.dart';
 import '../../features/incidents/data/repositories/incident_execution_repository_impl.dart';
 import '../../features/incidents/domain/repositories/incident_execution_repository.dart';
 import '../../features/incidents/domain/usecases/incident_execution_use_case.dart';
@@ -165,6 +168,15 @@ void registerRequestDependencies() {
       services<RequestApiService>(),
       services<ApiRequestContextProvider>(),
     ),
+  );
+  services.registerLazySingleton<RequestCreationRepository>(
+    () => RequestCreationRepositoryImpl(
+      services<RequestApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<IncidentRequestUseCase>(
+    () => IncidentRequestUseCase(services<RequestCreationRepository>()),
   );
   services.registerLazySingleton<GetRequestLookupUseCase>(
     () => GetRequestLookupUseCase(services<RequestRepository>()),

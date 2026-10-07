@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../requests/domain/usecases/incident_request_use_case.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/localization/app_strings.dart';
 import '../../../widgets/app_button.dart';
@@ -20,9 +21,13 @@ class IncidentActionConfigurationScreen extends StatefulWidget {
     required this.action,
     this.incidentId,
     this.coordinator,
+    this.requestNewStatusId = IncidentRequestUseCase.confirmedNewStatusId,
   });
   final IncidentAvailableAction action;
   final int? incidentId;
+
+  /// Provided explicitly by a confirmed backend execution policy, never UI inference.
+  final int? requestNewStatusId;
 
   /// This route owns and closes the coordinator, including injected instances.
   final IncidentActionConfigurationCubit? coordinator;
@@ -36,6 +41,56 @@ class _IncidentActionConfigurationScreenState
   final capture = CapNativeFormCapture();
   late final IncidentActionConfigurationCubit coordinator;
   bool showRemark = false, directStarted = false;
+  final _dynamicFormKey = GlobalKey<CapDynamicFormState>();
+  final _locationKey = GlobalKey();
+  final _photoKey = GlobalKey();
+  bool _validating = false;
+
+  Future<void> submitRequest() async {
+    if (_validating) return;
+    _validating = true;
+    try {
+      final state = coordinator.state;
+      final missingLocation = state.requiresLocation && state.location == null;
+      final missingPhoto =
+          state.requiresPhoto && (state.photo?.bytes.isEmpty ?? true);
+      if (missingLocation || missingPhoto) {
+        FocusScope.of(context).unfocus();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              missingLocation
+                  ? context.tr(
+                      'Capture your location first',
+                      'حدّد موقعك أولًا',
+                    )
+                  : context.tr('Add the required photo', 'أضف الصورة المطلوبة'),
+            ),
+          ),
+        );
+        final target =
+            (missingLocation ? _locationKey : _photoKey).currentContext;
+        if (target != null) {
+          await Scrollable.ensureVisible(
+            target,
+            alignment: 0.1,
+            duration: const Duration(milliseconds: 250),
+          );
+        }
+        return;
+      }
+      if (state.requiresForm &&
+          !(await _dynamicFormKey.currentState!.validateAndFocus())) {
+        return;
+      }
+      if (!mounted) return;
+      FocusScope.of(context).unfocus();
+      await coordinator.continueExecution();
+    } finally {
+      _validating = false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +100,10 @@ class _IncidentActionConfigurationScreenState
           action: widget.action,
           incidentId: widget.incidentId,
           executor: services<IncidentExecutionUseCase>(),
+          requestExecutor: widget.action.flow == IncidentActionFlow.request
+              ? services<IncidentRequestUseCase>()
+              : null,
+          requestNewStatusId: widget.requestNewStatusId,
           getConfiguration: services<GetIncidentActionConfigurationUseCase>(),
           form: CapFormCubit(services<GetCapFormUseCase>()),
           getLocation: capture.getCurrentLocation,
@@ -61,7 +120,8 @@ class _IncidentActionConfigurationScreenState
   void continueWithoutRequirements() {
     if (!mounted ||
         directStarted ||
-        coordinator.executor == null ||
+        !coordinator.hasExecutor ||
+        coordinator.submissionBlocked ||
         coordinator.state.hasRequirements ||
         coordinator.state.stage != ActionConfigurationStage.readyToContinue) {
       return;
@@ -85,7 +145,12 @@ class _IncidentActionConfigurationScreenState
     IncidentAction.reject => context.tr('Reject', 'رفض'),
     IncidentAction.hold => context.tr('Put on hold', 'تعليق البلاغ'),
     IncidentAction.complete => context.tr('Complete task', 'إكمال المهمة'),
-    _ => context.tr('Continue', 'متابعة'),
+    IncidentAction.interventionRequest ||
+    IncidentAction.renewalRequest ||
+    IncidentAction.departureRequest => context.tr(
+      'Submit request',
+      'إرسال الطلب',
+    ),
   };
   @override
   Widget build(
@@ -116,10 +181,18 @@ class _IncidentActionConfigurationScreenState
           state.stage == ActionConfigurationStage.initial;
       final enabled =
           !working &&
-          state.execution != null &&
-          (selecting
-              ? state.execution!.assignedUserId != null
-              : state.requirementsValid);
+          !coordinator.submissionBlocked &&
+          (coordinator.isRequest
+              ? (requirements || state.requirementsValid) &&
+                    !state.locationBusy &&
+                    !state.photoBusy &&
+                    !coordinator.form.state.loading &&
+                    state.failure == null &&
+                    !state.unknownPhotoPolicy
+              : state.execution != null &&
+                    (selecting
+                        ? state.execution!.assignedUserId != null
+                        : state.requirementsValid));
       return PopScope(
         canPop: !submitting,
         child: Scaffold(
@@ -127,6 +200,8 @@ class _IncidentActionConfigurationScreenState
             title: Text(
               selecting
                   ? context.tr('Assign incident', 'إسناد البلاغ')
+                  : coordinator.isRequest
+                  ? context.tr('Request requirements', 'متطلبات الطلب')
                   : context.tr('Action requirements', 'متطلبات الإجراء'),
             ),
             actions: [
@@ -147,372 +222,406 @@ class _IncidentActionConfigurationScreenState
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
                     children: [
-                      if (working) ...[
-                        const SizedBox(height: 40),
-                        const Center(child: CircularProgressIndicator()),
-                        const SizedBox(height: 16),
-                        Text(
-                          context.tr(
-                            submitting
-                                ? 'Submitting action…'
-                                : 'Preparing action…',
-                            submitting
-                                ? 'جارٍ تنفيذ الإجراء…'
-                                : 'جارٍ تجهيز الإجراء…',
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                      if (state.failure != null)
-                        _ErrorNotice(
-                          message: state.failure!.message,
-                          onRetry: coordinator.start,
-                        ),
-                      if (state.executionFailure != null)
-                        _ErrorNotice(message: state.executionFailure!.message),
-                      if (requirements) ...[
-                        if (state.requiresLocation)
-                          _RequirementCard(
-                            sectionKey: const ValueKey('location-section'),
-                            title: context.tr('Location', 'الموقع'),
-                            icon: Icons.my_location,
-                            required: true,
-                            completed: state.location != null,
-                            busy: state.locationBusy,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  state.location == null
-                                      ? context.tr(
-                                          'Capture your current location',
-                                          'حدّد موقعك الحالي',
-                                        )
-                                      : context.tr(
-                                          'Location captured',
-                                          'تم تحديد الموقع',
-                                        ),
-                                ),
-                                if (state.location != null)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    child: Directionality(
-                                      textDirection: TextDirection.ltr,
-                                      child: SelectableText(
-                                        state.location!.replaceFirst(
-                                          ',',
-                                          '  /  ',
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                  ),
-                                if (state.locationFailure != null)
-                                  _ErrorNotice(
-                                    message: state.locationFailure!.message,
-                                  ),
-                                OutlinedButton.icon(
-                                  onPressed: state.locationBusy
-                                      ? null
-                                      : coordinator.refreshLocation,
-                                  icon: Icon(
-                                    state.location == null
-                                        ? Icons.my_location
-                                        : Icons.refresh,
-                                  ),
-                                  label: Text(
-                                    state.location == null
-                                        ? context.tr(
-                                            'Capture location',
-                                            'تحديد الموقع',
-                                          )
-                                        : context.tr(
-                                            'Refresh location',
-                                            'تحديث الموقع',
-                                          ),
-                                  ),
-                                ),
-                              ],
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (coordinator.submissionBlocked)
+                            _ErrorNotice(
+                              message: context.tr(
+                                'You can prepare this request. Submission is unavailable until the backend NewStatusId is confirmed.',
+                                'يمكنك تجهيز الطلب، لكن الإرسال غير متاح لحين تأكيد قيمة NewStatusId من فريق الخادم.',
+                              ),
                             ),
-                          ),
-                        if (state.requiresPhoto)
-                          _RequirementCard(
-                            sectionKey: const ValueKey('photo-section'),
-                            title: context.tr('Photo', 'الصورة'),
-                            icon: Icons.photo_camera_outlined,
-                            required: true,
-                            completed: state.photo != null,
-                            busy: state.photoBusy,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: AspectRatio(
-                                    aspectRatio: 4 / 3,
-                                    child: state.photo == null
-                                        ? ColoredBox(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.surfaceContainer,
-                                            child: Column(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                const Icon(
-                                                  Icons.add_a_photo_outlined,
-                                                  size: 48,
-                                                ),
-                                                const SizedBox(height: 12),
-                                                Text(
-                                                  context.tr(
-                                                    'Add a photo',
-                                                    'أضف صورة',
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )
-                                        : Image.memory(
-                                            state.photo!.bytes,
-                                            fit: BoxFit.contain,
-                                            semanticLabel: context.tr(
-                                              'Captured incident photo',
-                                              'صورة البلاغ الملتقطة',
-                                            ),
-                                            errorBuilder: (_, _, _) =>
-                                                const Center(
-                                                  child: Icon(
-                                                    Icons.broken_image_outlined,
-                                                    size: 48,
-                                                  ),
-                                                ),
-                                          ),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                if (state.photoFailure != null)
-                                  _ErrorNotice(
-                                    message: state.photoFailure!.message,
-                                  ),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
+                          if (working) ...[
+                            const SizedBox(height: 40),
+                            const Center(child: CircularProgressIndicator()),
+                            const SizedBox(height: 16),
+                            Text(
+                              context.tr(
+                                submitting
+                                    ? 'Submitting action…'
+                                    : 'Preparing action…',
+                                submitting
+                                    ? 'جارٍ تنفيذ الإجراء…'
+                                    : 'جارٍ تجهيز الإجراء…',
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                          if (state.failure != null)
+                            _ErrorNotice(
+                              message: state.failure!.message,
+                              onRetry: coordinator.start,
+                            ),
+                          if (state.executionFailure != null)
+                            _ErrorNotice(
+                              message: state.executionFailure!.message,
+                            ),
+                          if (requirements) ...[
+                            if (state.requiresLocation)
+                              _RequirementCard(
+                                key: _locationKey,
+                                sectionKey: const ValueKey('location-section'),
+                                title: context.tr('Location', 'الموقع'),
+                                icon: Icons.my_location,
+                                required: true,
+                                completed: state.location != null,
+                                busy: state.locationBusy,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
+                                    Text(
+                                      state.location == null
+                                          ? context.tr(
+                                              'Capture your current location',
+                                              'حدّد موقعك الحالي',
+                                            )
+                                          : context.tr(
+                                              'Location captured',
+                                              'تم تحديد الموقع',
+                                            ),
+                                    ),
+                                    if (state.location != null)
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        child: Directionality(
+                                          textDirection: TextDirection.ltr,
+                                          child: SelectableText(
+                                            state.location!.replaceFirst(
+                                              ',',
+                                              '  /  ',
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                    if (state.locationFailure != null)
+                                      _ErrorNotice(
+                                        message: state.locationFailure!.message,
+                                      ),
                                     OutlinedButton.icon(
-                                      onPressed: state.photoBusy
+                                      onPressed: state.locationBusy
                                           ? null
-                                          : coordinator.capturePhoto,
-                                      icon: const Icon(
-                                        Icons.photo_camera_outlined,
+                                          : coordinator.refreshLocation,
+                                      icon: Icon(
+                                        state.location == null
+                                            ? Icons.my_location
+                                            : Icons.refresh,
                                       ),
                                       label: Text(
-                                        state.photo == null
+                                        state.location == null
                                             ? context.tr(
-                                                'Capture photo',
-                                                'التقاط صورة',
+                                                'Capture location',
+                                                'تحديد الموقع',
                                               )
                                             : context.tr(
-                                                'Retake',
-                                                'إعادة التصوير',
+                                                'Refresh location',
+                                                'تحديث الموقع',
                                               ),
                                       ),
                                     ),
-                                    if (state.photo != null) ...[
-                                      OutlinedButton.icon(
-                                        onPressed: state.photoBusy
-                                            ? null
-                                            : () => coordinator.editPhoto(
-                                                (photo) =>
-                                                    Navigator.push<
-                                                      CapFormEvidence
-                                                    >(
-                                                      context,
-                                                      MaterialPageRoute(
-                                                        builder: (_) =>
-                                                            CapPhotoEditor(
-                                                              photo: photo,
-                                                            ),
+                                  ],
+                                ),
+                              ),
+                            if (state.requiresPhoto)
+                              _RequirementCard(
+                                key: _photoKey,
+                                sectionKey: const ValueKey('photo-section'),
+                                title: context.tr('Photo', 'الصورة'),
+                                icon: Icons.photo_camera_outlined,
+                                required: true,
+                                completed: state.photo != null,
+                                busy: state.photoBusy,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: AspectRatio(
+                                        aspectRatio: 4 / 3,
+                                        child: state.photo == null
+                                            ? ColoredBox(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.surfaceContainer,
+                                                child: Column(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: [
+                                                    const Icon(
+                                                      Icons
+                                                          .add_a_photo_outlined,
+                                                      size: 48,
+                                                    ),
+                                                    const SizedBox(height: 12),
+                                                    Text(
+                                                      context.tr(
+                                                        'Add a photo',
+                                                        'أضف صورة',
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              )
+                                            : Image.memory(
+                                                state.photo!.bytes,
+                                                fit: BoxFit.contain,
+                                                semanticLabel: context.tr(
+                                                  'Captured incident photo',
+                                                  'صورة البلاغ الملتقطة',
+                                                ),
+                                                errorBuilder: (_, _, _) =>
+                                                    const Center(
+                                                      child: Icon(
+                                                        Icons
+                                                            .broken_image_outlined,
+                                                        size: 48,
                                                       ),
                                                     ),
                                               ),
-                                        icon: const Icon(Icons.crop_rotate),
-                                        label: Text(
-                                          context.tr('Edit', 'تعديل'),
-                                        ),
                                       ),
-                                      TextButton.icon(
-                                        onPressed: state.photoBusy
-                                            ? null
-                                            : coordinator.removePhoto,
-                                        icon: const Icon(Icons.delete_outline),
-                                        label: Text(
-                                          context.tr('Remove', 'حذف'),
-                                        ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    if (state.photoFailure != null)
+                                      _ErrorNotice(
+                                        message: state.photoFailure!.message,
                                       ),
-                                    ],
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        OutlinedButton.icon(
+                                          onPressed: state.photoBusy
+                                              ? null
+                                              : coordinator.capturePhoto,
+                                          icon: const Icon(
+                                            Icons.photo_camera_outlined,
+                                          ),
+                                          label: Text(
+                                            state.photo == null
+                                                ? context.tr(
+                                                    'Capture photo',
+                                                    'التقاط صورة',
+                                                  )
+                                                : context.tr(
+                                                    'Retake',
+                                                    'إعادة التصوير',
+                                                  ),
+                                          ),
+                                        ),
+                                        if (state.photo != null) ...[
+                                          OutlinedButton.icon(
+                                            onPressed: state.photoBusy
+                                                ? null
+                                                : () => coordinator.editPhoto(
+                                                    (photo) =>
+                                                        Navigator.push<
+                                                          CapFormEvidence
+                                                        >(
+                                                          context,
+                                                          MaterialPageRoute(
+                                                            builder: (_) =>
+                                                                CapPhotoEditor(
+                                                                  photo: photo,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                  ),
+                                            icon: const Icon(Icons.crop_rotate),
+                                            label: Text(
+                                              context.tr('Edit', 'تعديل'),
+                                            ),
+                                          ),
+                                          TextButton.icon(
+                                            onPressed: state.photoBusy
+                                                ? null
+                                                : coordinator.removePhoto,
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                            ),
+                                            label: Text(
+                                              context.tr('Remove', 'حذف'),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
                                   ],
                                 ),
-                              ],
-                            ),
-                          ),
-                        if (showRemark || state.remark.isNotEmpty)
-                          _RequirementCard(
-                            title: context.tr('Remark', 'الملاحظة'),
-                            icon: Icons.notes_outlined,
-                            required: false,
-                            completed: state.remark.trim().isNotEmpty,
-                            child: TextFormField(
-                              key: const ValueKey('execution-remark'),
-                              initialValue: state.remark,
-                              minLines: 3,
-                              maxLines: 6,
-                              onChanged: coordinator.setRemark,
-                              decoration: InputDecoration(
-                                hintText: context.tr(
-                                  'Add any useful details',
-                                  'أضف أي تفاصيل مفيدة',
-                                ),
-                                border: const OutlineInputBorder(),
                               ),
-                            ),
-                          ),
-                        if (state.requiresForm)
-                          _RequirementCard(
-                            sectionKey: const ValueKey('form-section'),
-                            title: context.tr(
-                              'Additional Information',
-                              'معلومات إضافية',
-                            ),
-                            icon: Icons.description_outlined,
-                            required: coordinator.form.state.visibleQuestions
-                                .any((q) => q.required),
-                            completed:
-                                coordinator.form.confirmedAnswers(
+                            if (showRemark || state.remark.isNotEmpty)
+                              _RequirementCard(
+                                title: context.tr('Remark', 'الملاحظة'),
+                                icon: Icons.notes_outlined,
+                                required: false,
+                                completed: state.remark.trim().isNotEmpty,
+                                child: TextFormField(
+                                  key: const ValueKey('execution-remark'),
+                                  initialValue: state.remark,
+                                  minLines: 3,
+                                  maxLines: 6,
+                                  onChanged: coordinator.setRemark,
+                                  decoration: InputDecoration(
+                                    hintText: context.tr(
+                                      'Add any useful details',
+                                      'أضف أي تفاصيل مفيدة',
+                                    ),
+                                    border: const OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                            if (state.requiresForm)
+                              _RequirementCard(
+                                sectionKey: const ValueKey('form-section'),
+                                title: context.tr(
+                                  'Additional Information',
+                                  'معلومات إضافية',
+                                ),
+                                icon: Icons.description_outlined,
+                                required: coordinator
+                                    .form
+                                    .state
+                                    .visibleQuestions
+                                    .any((q) => q.required),
+                                completed:
+                                    coordinator.form.confirmedAnswers(
+                                      forSubmission: false,
+                                      showErrors: false,
+                                    ) !=
+                                    null,
+                                child: CapDynamicForm(
+                                  key: _dynamicFormKey,
+                                  cubit: coordinator.form,
+                                  embedded: true,
                                   forSubmission: false,
-                                  showErrors: false,
-                                ) !=
-                                null,
-                            child: CapDynamicForm(
-                              cubit: coordinator.form,
-                              embedded: true,
-                              forSubmission: false,
-                              capture: (q) => capture.capture(context, q),
-                              onRetry: coordinator.retryForm,
-                              onConfirmed: (_) => coordinator.completeForm(),
-                            ),
-                          ),
-                        if (state.unknownPhotoPolicy)
-                          _ErrorNotice(
-                            message: context.tr(
-                              'Photo requirements are unavailable. Please try again later.',
-                              'متطلبات الصورة غير متاحة. يرجى المحاولة لاحقًا.',
-                            ),
-                          ),
-                      ],
-                      if (selecting) ...[
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          margin: const EdgeInsets.only(bottom: 20),
-                          decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.group_outlined,
-                                size: 32,
+                                  capture: (q) => capture.capture(context, q),
+                                  onRetry: coordinator.retryForm,
+                                  onConfirmed: (_) =>
+                                      coordinator.completeForm(),
+                                ),
+                              ),
+                            if (state.unknownPhotoPolicy)
+                              _ErrorNotice(
+                                message: context.tr(
+                                  'Photo requirements are unavailable. Please try again later.',
+                                  'متطلبات الصورة غير متاحة. يرجى المحاولة لاحقًا.',
+                                ),
+                              ),
+                          ],
+                          if (selecting) ...[
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              margin: const EdgeInsets.only(bottom: 20),
+                              decoration: BoxDecoration(
                                 color: Theme.of(
                                   context,
-                                ).colorScheme.onPrimaryContainer,
+                                ).colorScheme.primaryContainer,
+                                borderRadius: BorderRadius.circular(24),
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                context.tr(
-                                  'Choose an engineer',
-                                  'اختر المهندس',
-                                ),
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.group_outlined,
+                                    size: 32,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimaryContainer,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    context.tr(
+                                      'Choose an engineer',
+                                      'اختر المهندس',
+                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    context.tr(
+                                      'Select a team member to assign this incident.',
+                                      'اختر أحد أعضاء الفريق لإسناد البلاغ إليه.',
+                                    ),
+                                    style: TextStyle(
                                       color: Theme.of(
                                         context,
                                       ).colorScheme.onPrimaryContainer,
-                                      fontWeight: FontWeight.w700,
                                     ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                context.tr(
-                                  'Select a team member to assign this incident.',
-                                  'اختر أحد أعضاء الفريق لإسناد البلاغ إليه.',
+                            ),
+                            Text(
+                              context.tr(
+                                'Team members (${state.team.length})',
+                                'أعضاء الفريق (${state.team.length})',
+                              ),
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 12),
+                            if (state.team.isEmpty)
+                              _ErrorNotice(
+                                message: context.tr(
+                                  'No team members available',
+                                  'لا يوجد أعضاء فريق متاحون',
                                 ),
-                                style: TextStyle(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onPrimaryContainer,
+                                onRetry: coordinator.retryTeam,
+                              ),
+                            for (final member in state.team)
+                              _TeamMemberCard(
+                                name: member.name,
+                                userName: member.userName,
+                                mobile: member.mobile,
+                                selected:
+                                    state.execution?.assignedUserId ==
+                                    member.id,
+                                onTap: () =>
+                                    coordinator.selectMember(member.id),
+                              ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              key: const ValueKey('assignment-remark'),
+                              initialValue: state.execution?.remark ?? '',
+                              minLines: 2,
+                              maxLines: 4,
+                              onChanged: coordinator.setRemark,
+                              decoration: InputDecoration(
+                                labelText: context.tr(
+                                  'Remark (optional)',
+                                  'الملاحظة (اختياري)',
+                                ),
+                                alignLabelWithHint: true,
+                                filled: true,
+                                fillColor: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerLow,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(16),
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                        Text(
-                          context.tr(
-                            'Team members (${state.team.length})',
-                            'أعضاء الفريق (${state.team.length})',
-                          ),
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 12),
-                        if (state.team.isEmpty)
-                          _ErrorNotice(
-                            message: context.tr(
-                              'No team members available',
-                              'لا يوجد أعضاء فريق متاحون',
                             ),
-                            onRetry: coordinator.retryTeam,
-                          ),
-                        for (final member in state.team)
-                          _TeamMemberCard(
-                            name: member.name,
-                            userName: member.userName,
-                            mobile: member.mobile,
-                            selected:
-                                state.execution?.assignedUserId == member.id,
-                            onTap: () => coordinator.selectMember(member.id),
-                          ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          key: const ValueKey('assignment-remark'),
-                          initialValue: state.execution?.remark ?? '',
-                          minLines: 2,
-                          maxLines: 4,
-                          onChanged: coordinator.setRemark,
-                          decoration: InputDecoration(
-                            labelText: context.tr(
-                              'Remark (optional)',
-                              'الملاحظة (اختياري)',
-                            ),
-                            alignLabelWithHint: true,
-                            filled: true,
-                            fillColor: Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainerLow,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      ],
+                          ],
+                        ],
+                      ),
                     ],
                   ),
                 ),
-                if (requirements || selecting || state.executionFailure != null)
+                if (requirements ||
+                    selecting ||
+                    state.executionFailure != null ||
+                    coordinator.submissionBlocked)
                   Material(
                     elevation: 4,
                     color: Theme.of(context).colorScheme.surface,
@@ -527,6 +636,10 @@ class _IncidentActionConfigurationScreenState
                         loading: working,
                         onPressed: enabled
                             ? () {
+                                if (coordinator.isRequest) {
+                                  submitRequest();
+                                  return;
+                                }
                                 FocusScope.of(context).unfocus();
                                 coordinator.continueExecution();
                               }
@@ -654,6 +767,7 @@ class _TeamMemberCard extends StatelessWidget {
 
 class _RequirementCard extends StatelessWidget {
   const _RequirementCard({
+    super.key,
     this.sectionKey,
     required this.title,
     required this.icon,

@@ -12,7 +12,7 @@ typedef CapFormCapture =
 
 /// API-backed form. The caller owns/loads/closes the cubit and chooses FormId.
 /// Confirm only returns answers; it never changes an incident or submits data.
-class CapDynamicForm extends StatelessWidget {
+class CapDynamicForm extends StatefulWidget {
   const CapDynamicForm({
     super.key,
     required this.cubit,
@@ -30,6 +30,50 @@ class CapDynamicForm extends StatelessWidget {
 
   /// Render the existing questions in a parent scroll view with one outer CTA.
   final bool embedded;
+  @override
+  State<CapDynamicForm> createState() => CapDynamicFormState();
+}
+
+class CapDynamicFormState extends State<CapDynamicForm> {
+  CapFormCubit get cubit => widget.cubit;
+  bool get embedded => widget.embedded;
+  bool get forSubmission => widget.forSubmission;
+  CapFormCapture? get capture => widget.capture;
+  VoidCallback get onRetry => widget.onRetry;
+  ValueChanged<List<CapFormAnswer>> get onConfirmed => widget.onConfirmed;
+  final _anchors = <int, GlobalKey>{};
+  final _focusNodes = <int, FocusNode>{};
+
+  /// Uses the existing validator, then reveals the first visible invalid field.
+  Future<bool> validateAndFocus() async {
+    final answers = cubit.confirmedAnswers(forSubmission: forSubmission);
+    if (answers != null) return true;
+    final first = cubit.state.visibleQuestions
+        .where((q) => cubit.state.errors.containsKey(q.id))
+        .firstOrNull;
+    if (first == null) return false;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return false;
+    final target = _anchors[first.id]?.currentContext;
+    if (target != null && target.mounted) {
+      await Scrollable.ensureVisible(
+        target,
+        alignment: 0.1,
+        duration: const Duration(milliseconds: 250),
+      );
+      if (mounted) _focusNodes[first.id]?.requestFocus();
+    }
+    return false;
+  }
+
+  @override
+  void dispose() {
+    for (final node in _focusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => BlocBuilder<CapFormCubit, CapFormState>(
     bloc: cubit,
@@ -115,6 +159,7 @@ class CapDynamicForm extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   AbsorbPointer(
+                    key: _anchors.putIfAbsent(question.id, GlobalKey.new),
                     absorbing: state.submitting || state.submitted,
                     child: _QuestionInput(
                       key: ValueKey('${form.id}-${question.id}'),
@@ -122,6 +167,10 @@ class CapDynamicForm extends StatelessWidget {
                       values: state.answers[question.id] ?? const [],
                       cubit: cubit,
                       capture: capture,
+                      focusNode: _focusNodes.putIfAbsent(
+                        question.id,
+                        () => FocusNode(debugLabel: 'question-${question.id}'),
+                      ),
                     ),
                   ),
                   if (state.errors[question.id] case final error?)
@@ -146,12 +195,12 @@ class CapDynamicForm extends StatelessWidget {
             loading: state.submitting,
             onPressed: state.submitted
                 ? null
-                : () {
-                    FocusScope.of(context).unfocus();
-                    final answers = cubit.confirmedAnswers(
-                      forSubmission: forSubmission,
-                    );
-                    if (answers != null) onConfirmed(answers);
+                : () async {
+                    if (await validateAndFocus() && mounted) {
+                      onConfirmed(
+                        cubit.confirmedAnswers(forSubmission: forSubmission)!,
+                      );
+                    }
                   },
           ),
       ];
@@ -200,11 +249,13 @@ class _QuestionInput extends StatefulWidget {
     required this.values,
     required this.cubit,
     this.capture,
+    required this.focusNode,
   });
   final CapFormQuestion question;
   final List<CapFormAnswer> values;
   final CapFormCubit cubit;
   final CapFormCapture? capture;
+  final FocusNode focusNode;
   @override
   State<_QuestionInput> createState() => _QuestionInputState();
 }
@@ -264,6 +315,18 @@ class _QuestionInputState extends State<_QuestionInput> {
 
   @override
   Widget build(BuildContext context) {
+    final input = buildInput(context);
+    return switch (widget.question.type) {
+      CapQuestionType.text ||
+      CapQuestionType.number ||
+      CapQuestionType.location ||
+      CapQuestionType.qr ||
+      CapQuestionType.barcode => input,
+      _ => Focus(focusNode: widget.focusNode, child: input),
+    };
+  }
+
+  Widget buildInput(BuildContext context) {
     final q = widget.question;
     final text = widget.values.firstOrNull?.text ?? '';
     switch (q.type) {
@@ -276,6 +339,7 @@ class _QuestionInputState extends State<_QuestionInput> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextFormField(
+              focusNode: widget.focusNode,
               controller: controller,
               maxLines: q.type == CapQuestionType.text ? 3 : 1,
               textDirection: q.type == CapQuestionType.text

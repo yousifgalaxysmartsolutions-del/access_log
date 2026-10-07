@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../../../requests/domain/usecases/incident_request_use_case.dart';
+import '../../../requests/data/models/request_creation_models.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/error/exception_mapper.dart';
 import '../../../../core/error/failure.dart';
@@ -162,7 +164,7 @@ class ActionConfigurationState {
   );
 }
 
-/// Shared requirements and final execution; requests remain outside this flow.
+/// Shared requirements engine; final execution is routed by the selected flow.
 class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
   IncidentActionConfigurationCubit({
     required this.action,
@@ -172,7 +174,11 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     this.handlePhoto = unresolvedActionPhotoPolicy,
     this.incidentId,
     this.executor,
+    this.requestExecutor,
+    this.requestNewStatusId,
+    Duration Function()? formElapsed,
   }) : super(const ActionConfigurationState(ActionConfigurationStage.initial)) {
+    _formElapsed = formElapsed ?? (() => _formTimer.elapsed);
     _formSubscription = form.stream.listen((_) => _syncRequirements());
   }
   final IncidentAvailableAction action;
@@ -182,6 +188,37 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
   final ActionPhotoHandler handlePhoto;
   final int? incidentId;
   final IncidentExecutionUseCase? executor;
+  final IncidentRequestUseCase? requestExecutor;
+
+  /// Explicit execution input only; never inferred from actions/status/labels.
+  final int? requestNewStatusId;
+  final Stopwatch _formTimer = Stopwatch();
+  late final Duration Function() _formElapsed;
+  int? _submittedMinutes;
+  bool get isRequest => action.flow == IncidentActionFlow.request;
+  bool get submissionBlocked =>
+      isRequest && (requestNewStatusId == null || requestNewStatusId! <= 0);
+  bool get hasExecutor =>
+      isRequest ? requestExecutor != null : executor != null;
+  RequestExecutionContext? get requestExecution {
+    final input = state.execution;
+    if (!isRequest || input == null) return null;
+    return RequestExecutionContext(
+      incidentId: input.incidentId,
+      requestTypeId: action.actionTypeId,
+      newStatusId: requestNewStatusId,
+      remark: input.remark,
+      lat: input.lat,
+      long: input.long,
+      photo: input.photo,
+      questionFormId: input.questionFormId,
+      answers: input.answers,
+      noOfMinute: state.requiresForm
+          ? (_submittedMinutes ?? _formElapsed().inMinutes)
+          : 0,
+    );
+  }
+
   int _revision = 0;
   bool _running = false;
   Future<void>? _closing;
@@ -193,20 +230,26 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
         ActionConfigurationStage.formReady,
         ActionConfigurationStage.readyToContinue,
       }.contains(state.stage);
-  static bool supports(IncidentAvailableAction action) =>
-      action.flow != IncidentActionFlow.request &&
-      const {
-        IncidentAction.assign,
-        IncidentAction.cancel,
-        IncidentAction.approve,
-        IncidentAction.reject,
-        IncidentAction.hold,
-        IncidentAction.complete,
-      }.contains(action.type);
+  static bool supports(IncidentAvailableAction action) => const {
+    IncidentAction.assign,
+    IncidentAction.cancel,
+    IncidentAction.approve,
+    IncidentAction.reject,
+    IncidentAction.hold,
+    IncidentAction.complete,
+    IncidentAction.interventionRequest,
+    IncidentAction.renewalRequest,
+    IncidentAction.departureRequest,
+  }.contains(action.type);
 
   Future<void> start() async {
     if (isClosed || _running || state.execution != null) return;
-    if (!supports(action) || action.actionTypeId <= 0) {
+    if (!supports(action) ||
+        action.actionTypeId <= 0 ||
+        (isRequest &&
+            (requestExecutor == null ||
+                incidentId == null ||
+                incidentId! <= 0))) {
       emit(
         const ActionConfigurationState(
           ActionConfigurationStage.failure,
@@ -252,7 +295,12 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
 
     try {
       stage(ActionConfigurationStage.loadingConfiguration);
-      final result = await getConfiguration(action.actionTypeId);
+      final result = isRequest
+          ? await requestExecutor!.getConfiguration(
+              action.actionTypeId,
+              incidentId!,
+            )
+          : await getConfiguration(action.actionTypeId);
       if (!current()) return;
       switch (result) {
         case FailureResult(:final failure):
@@ -294,6 +342,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
         return;
       }
       stage(ActionConfigurationStage.formReady);
+      if (isRequest && !_formTimer.isRunning) _formTimer.start();
     } on Exception catch (error) {
       stage(
         ActionConfigurationStage.failure,
@@ -455,6 +504,9 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     );
     await form.load(formId);
     if (isClosed) return;
+    if (isRequest && form.state.form != null && !_formTimer.isRunning) {
+      _formTimer.start();
+    }
     emit(state.requirementsState(stage: ActionConfigurationStage.formReady));
     _syncRequirements();
   }
@@ -500,6 +552,10 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
   }
 
   Future<void> continueExecution() async {
+    if (isRequest) {
+      await _createRequest();
+      return;
+    }
     if (isClosed ||
         _running ||
         executor == null ||
@@ -556,6 +612,50 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     }
   }
 
+  Future<void> _createRequest() async {
+    if (isClosed ||
+        _running ||
+        requestExecutor == null ||
+        submissionBlocked ||
+        state.stage != ActionConfigurationStage.readyToContinue ||
+        !state.requirementsValid) {
+      return;
+    }
+    final input = requestExecution;
+    if (input == null) return;
+    _submittedMinutes ??= input.noOfMinute;
+    _formTimer.stop();
+    _running = true;
+    final revision = _revision;
+    emit(state.executionState(ActionConfigurationStage.submitting));
+    try {
+      final result = await requestExecutor!.create(input);
+      if (isClosed || revision != _revision) return;
+      switch (result) {
+        case Success():
+          emit(state.executionState(ActionConfigurationStage.succeeded));
+        case FailureResult(:final failure):
+          emit(
+            state.executionState(
+              ActionConfigurationStage.readyToContinue,
+              failure: failure,
+            ),
+          );
+      }
+    } on Exception catch (error) {
+      if (!isClosed && revision == _revision) {
+        emit(
+          state.executionState(
+            ActionConfigurationStage.readyToContinue,
+            failure: ExceptionMapper.map(error),
+          ),
+        );
+      }
+    } finally {
+      _running = false;
+    }
+  }
+
   void retryTeam() {
     if (isClosed ||
         _running ||
@@ -570,6 +670,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
   Future<void> close() {
     if (_closing != null) return _closing!;
     _revision++;
+    _formTimer.stop();
     // Mark both cubits closed immediately, including when a route disposes them.
     return _closing = Future.wait<void>([
       _formSubscription.cancel(),
