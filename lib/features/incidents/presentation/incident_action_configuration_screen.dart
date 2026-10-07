@@ -3,10 +3,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/di/injection.dart';
 import '../../../core/localization/app_strings.dart';
 import '../../../widgets/app_button.dart';
+import '../../forms/data/models/cap_form_models.dart';
 import '../../forms/domain/usecases/cap_form_use_cases.dart';
 import '../../forms/presentation/bloc/cap_form_cubit.dart';
 import '../../forms/presentation/widgets/cap_dynamic_form.dart';
 import '../../forms/presentation/widgets/cap_form_capture.dart';
+import '../../forms/presentation/widgets/cap_photo_editor.dart';
 import '../domain/actions/incident_available_action.dart';
 import '../domain/usecases/incident_execution_use_case.dart';
 import '../domain/usecases/get_incident_action_configuration_use_case.dart';
@@ -22,7 +24,7 @@ class IncidentActionConfigurationScreen extends StatefulWidget {
   final IncidentAvailableAction action;
   final int? incidentId;
 
-  /// Optional test/host injection. This route owns and closes the coordinator.
+  /// This route owns and closes the coordinator, including injected instances.
   final IncidentActionConfigurationCubit? coordinator;
   @override
   State<IncidentActionConfigurationScreen> createState() =>
@@ -33,6 +35,7 @@ class _IncidentActionConfigurationScreenState
     extends State<IncidentActionConfigurationScreen> {
   final capture = CapNativeFormCapture();
   late final IncidentActionConfigurationCubit coordinator;
+  bool showRemark = false, directStarted = false;
   @override
   void initState() {
     super.initState();
@@ -43,13 +46,30 @@ class _IncidentActionConfigurationScreenState
           incidentId: widget.incidentId,
           executor: services<IncidentExecutionUseCase>(),
           getConfiguration: services<GetIncidentActionConfigurationUseCase>(),
-          // Answers are submitted once with the final action, never separately.
           form: CapFormCubit(services<GetCapFormUseCase>()),
           getLocation: capture.getCurrentLocation,
           handlePhoto: (level) =>
               resolveActionPhoto(level, capturePhoto: capture.capturePhoto),
         );
-    coordinator.start();
+    if (coordinator.state.stage == ActionConfigurationStage.initial) {
+      coordinator.start().then((_) => continueWithoutRequirements());
+    } else {
+      continueWithoutRequirements();
+    }
+  }
+
+  void continueWithoutRequirements() {
+    if (!mounted ||
+        directStarted ||
+        coordinator.executor == null ||
+        coordinator.state.hasRequirements ||
+        coordinator.state.stage != ActionConfigurationStage.readyToContinue) {
+      return;
+    }
+    directStarted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) coordinator.continueExecution();
+    });
   }
 
   @override
@@ -58,239 +78,686 @@ class _IncidentActionConfigurationScreenState
     super.dispose();
   }
 
+  String actionLabel(BuildContext context) => switch (widget.action.type) {
+    IncidentAction.assign => context.tr('Continue', 'متابعة'),
+    IncidentAction.cancel => context.tr('Cancel incident', 'إلغاء البلاغ'),
+    IncidentAction.approve => context.tr('Approve', 'موافقة'),
+    IncidentAction.reject => context.tr('Reject', 'رفض'),
+    IncidentAction.hold => context.tr('Put on hold', 'تعليق البلاغ'),
+    IncidentAction.complete => context.tr('Complete task', 'إكمال المهمة'),
+    _ => context.tr('Continue', 'متابعة'),
+  };
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(context.tr('Action requirements', 'متطلبات الإجراء')),
-    ),
-    body: BlocConsumer<IncidentActionConfigurationCubit, ActionConfigurationState>(
-      bloc: coordinator,
-      listener: (context, state) {
-        if (state.stage == ActionConfigurationStage.succeeded) {
-          Navigator.pop(context, true);
-        }
-      },
-      builder: (context, state) {
-        if (state.stage == ActionConfigurationStage.formReady) {
-          return CapDynamicForm(
-            cubit: coordinator.form,
-            forSubmission: false,
-            capture: (q) => capture.capture(context, q),
-            onRetry: coordinator.start,
-            onConfirmed: (_) => coordinator.completeForm(),
-          );
-        }
-        final (title, icon, loading) = switch (state.stage) {
-          ActionConfigurationStage.initial ||
-          ActionConfigurationStage.loadingConfiguration => (
-            context.tr(
-              'Loading action configuration',
-              'جارٍ تحميل إعدادات الإجراء',
+  Widget build(
+    BuildContext context,
+  ) => BlocConsumer<IncidentActionConfigurationCubit, ActionConfigurationState>(
+    bloc: coordinator,
+    listener: (context, state) {
+      if (state.stage == ActionConfigurationStage.succeeded) {
+        Navigator.pop(context, true);
+      }
+      continueWithoutRequirements();
+    },
+    builder: (context, state) {
+      final submitting = state.stage == ActionConfigurationStage.submitting;
+      final requirements =
+          state.hasRequirements &&
+          !{
+            ActionConfigurationStage.loadingTeam,
+            ActionConfigurationStage.selectingTeam,
+            ActionConfigurationStage.submitting,
+            ActionConfigurationStage.succeeded,
+          }.contains(state.stage);
+      final selecting = state.stage == ActionConfigurationStage.selectingTeam;
+      final working =
+          submitting ||
+          state.stage == ActionConfigurationStage.loadingTeam ||
+          state.stage == ActionConfigurationStage.loadingConfiguration ||
+          state.stage == ActionConfigurationStage.initial;
+      final enabled =
+          !working &&
+          state.execution != null &&
+          (selecting
+              ? state.execution!.assignedUserId != null
+              : state.requirementsValid);
+      return PopScope(
+        canPop: !submitting,
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(
+              selecting
+                  ? context.tr('Assign incident', 'إسناد البلاغ')
+                  : context.tr('Action requirements', 'متطلبات الإجراء'),
             ),
-            Icons.settings_outlined,
-            true,
+            actions: [
+              if (requirements)
+                IconButton(
+                  tooltip: context.tr('Add remark', 'إضافة ملاحظة'),
+                  onPressed: () => setState(() => showRemark = !showRemark),
+                  icon: const Icon(Icons.edit_note_outlined),
+                ),
+            ],
           ),
-          ActionConfigurationStage.requestingLocation => (
-            context.tr('Retrieving your location', 'جارٍ تحديد موقعك'),
-            Icons.my_location,
-            true,
-          ),
-          ActionConfigurationStage.waitingForPhoto => (
-            context.tr(
-              state.configuration?.photoRequiredLevel == 1
-                  ? 'Capture the required photo'
-                  : 'Photo requirements await configuration',
-              state.configuration?.photoRequiredLevel == 1
-                  ? 'التقط الصورة المطلوبة'
-                  : 'متطلبات الصور تنتظر تحديد القواعد',
-            ),
-            Icons.photo_camera_outlined,
-            false,
-          ),
-          ActionConfigurationStage.loadingForm => (
-            context.tr('Loading form', 'جارٍ تحميل النموذج'),
-            Icons.description_outlined,
-            true,
-          ),
-          ActionConfigurationStage.loadingTeam => (
-            context.tr('Loading team members', 'جارٍ تحميل أعضاء الفريق'),
-            Icons.groups_outlined,
-            true,
-          ),
-          ActionConfigurationStage.selectingTeam => (
-            context.tr('Select a team member', 'اختر عضو الفريق'),
-            Icons.person_outline,
-            false,
-          ),
-          ActionConfigurationStage.submitting => (
-            context.tr('Submitting action', 'جارٍ تنفيذ الإجراء'),
-            Icons.hourglass_top,
-            true,
-          ),
-          ActionConfigurationStage.succeeded => (
-            context.tr(
-              'Action completed successfully',
-              'تم تنفيذ الإجراء بنجاح',
-            ),
-            Icons.check_circle_outline,
-            false,
-          ),
-          ActionConfigurationStage.readyToContinue => (
-            context.tr('Ready to continue', 'جاهز للمتابعة'),
-            Icons.check_circle_outline,
-            false,
-          ),
-          _ => (
-            context.tr(
-              'Unable to complete requirements',
-              'تعذّر استكمال المتطلبات',
-            ),
-            Icons.error_outline,
-            false,
-          ),
-        };
-        return PopScope(
-          canPop: state.stage != ActionConfigurationStage.submitting,
-          child: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 48),
-                    const SizedBox(height: 16),
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    if (loading) const CircularProgressIndicator(),
-                    if (state.stage ==
-                            ActionConfigurationStage.waitingForPhoto &&
-                        state.configuration?.photoRequiredLevel != 1)
-                      Text(
-                        context.tr(
-                          'Photo level: ${state.configuration?.photoRequiredLevel}. No photo policy has been defined; no camera was opened.',
-                          'مستوى الصور: ${state.configuration?.photoRequiredLevel}. لم تُحدد سياسة هذا المستوى؛ لم يتم فتح الكاميرا.',
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    if (state.stage == ActionConfigurationStage.readyToContinue)
-                      Text(
-                        context.tr(
-                          'Requirements completed. No action has been executed.',
-                          'تم استكمال المتطلبات فقط. لم يتم تنفيذ الإجراء.',
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    if (state.failure != null) ...[
-                      Text(state.failure!.message, textAlign: TextAlign.center),
-                      const SizedBox(height: 16),
-                      AppButton(
-                        label: context.tr('Retry', 'إعادة المحاولة'),
-                        onPressed: coordinator.start,
-                      ),
-                    ],
-                    if (state.executionFailure != null)
-                      Text(
-                        state.executionFailure!.message,
-                        textAlign: TextAlign.center,
-                      ),
-                    if (state.stage ==
-                        ActionConfigurationStage.selectingTeam) ...[
-                      if (state.team.isEmpty) ...[
+          body: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    children: [
+                      if (working) ...[
+                        const SizedBox(height: 40),
+                        const Center(child: CircularProgressIndicator()),
+                        const SizedBox(height: 16),
                         Text(
                           context.tr(
-                            'No team members available',
-                            'لا يوجد أعضاء فريق متاحون',
+                            submitting
+                                ? 'Submitting action…'
+                                : 'Preparing action…',
+                            submitting
+                                ? 'جارٍ تنفيذ الإجراء…'
+                                : 'جارٍ تجهيز الإجراء…',
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                      if (state.failure != null)
+                        _ErrorNotice(
+                          message: state.failure!.message,
+                          onRetry: coordinator.start,
+                        ),
+                      if (state.executionFailure != null)
+                        _ErrorNotice(message: state.executionFailure!.message),
+                      if (requirements) ...[
+                        if (state.requiresLocation)
+                          _RequirementCard(
+                            sectionKey: const ValueKey('location-section'),
+                            title: context.tr('Location', 'الموقع'),
+                            icon: Icons.my_location,
+                            required: true,
+                            completed: state.location != null,
+                            busy: state.locationBusy,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  state.location == null
+                                      ? context.tr(
+                                          'Capture your current location',
+                                          'حدّد موقعك الحالي',
+                                        )
+                                      : context.tr(
+                                          'Location captured',
+                                          'تم تحديد الموقع',
+                                        ),
+                                ),
+                                if (state.location != null)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    child: Directionality(
+                                      textDirection: TextDirection.ltr,
+                                      child: SelectableText(
+                                        state.location!.replaceFirst(
+                                          ',',
+                                          '  /  ',
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ),
+                                if (state.locationFailure != null)
+                                  _ErrorNotice(
+                                    message: state.locationFailure!.message,
+                                  ),
+                                OutlinedButton.icon(
+                                  onPressed: state.locationBusy
+                                      ? null
+                                      : coordinator.refreshLocation,
+                                  icon: Icon(
+                                    state.location == null
+                                        ? Icons.my_location
+                                        : Icons.refresh,
+                                  ),
+                                  label: Text(
+                                    state.location == null
+                                        ? context.tr(
+                                            'Capture location',
+                                            'تحديد الموقع',
+                                          )
+                                        : context.tr(
+                                            'Refresh location',
+                                            'تحديث الموقع',
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (state.requiresPhoto)
+                          _RequirementCard(
+                            sectionKey: const ValueKey('photo-section'),
+                            title: context.tr('Photo', 'الصورة'),
+                            icon: Icons.photo_camera_outlined,
+                            required: true,
+                            completed: state.photo != null,
+                            busy: state.photoBusy,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: AspectRatio(
+                                    aspectRatio: 4 / 3,
+                                    child: state.photo == null
+                                        ? ColoredBox(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.surfaceContainer,
+                                            child: Column(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                const Icon(
+                                                  Icons.add_a_photo_outlined,
+                                                  size: 48,
+                                                ),
+                                                const SizedBox(height: 12),
+                                                Text(
+                                                  context.tr(
+                                                    'Add a photo',
+                                                    'أضف صورة',
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        : Image.memory(
+                                            state.photo!.bytes,
+                                            fit: BoxFit.contain,
+                                            semanticLabel: context.tr(
+                                              'Captured incident photo',
+                                              'صورة البلاغ الملتقطة',
+                                            ),
+                                            errorBuilder: (_, _, _) =>
+                                                const Center(
+                                                  child: Icon(
+                                                    Icons.broken_image_outlined,
+                                                    size: 48,
+                                                  ),
+                                                ),
+                                          ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                if (state.photoFailure != null)
+                                  _ErrorNotice(
+                                    message: state.photoFailure!.message,
+                                  ),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: state.photoBusy
+                                          ? null
+                                          : coordinator.capturePhoto,
+                                      icon: const Icon(
+                                        Icons.photo_camera_outlined,
+                                      ),
+                                      label: Text(
+                                        state.photo == null
+                                            ? context.tr(
+                                                'Capture photo',
+                                                'التقاط صورة',
+                                              )
+                                            : context.tr(
+                                                'Retake',
+                                                'إعادة التصوير',
+                                              ),
+                                      ),
+                                    ),
+                                    if (state.photo != null) ...[
+                                      OutlinedButton.icon(
+                                        onPressed: state.photoBusy
+                                            ? null
+                                            : () => coordinator.editPhoto(
+                                                (photo) =>
+                                                    Navigator.push<
+                                                      CapFormEvidence
+                                                    >(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) =>
+                                                            CapPhotoEditor(
+                                                              photo: photo,
+                                                            ),
+                                                      ),
+                                                    ),
+                                              ),
+                                        icon: const Icon(Icons.crop_rotate),
+                                        label: Text(
+                                          context.tr('Edit', 'تعديل'),
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: state.photoBusy
+                                            ? null
+                                            : coordinator.removePhoto,
+                                        icon: const Icon(Icons.delete_outline),
+                                        label: Text(
+                                          context.tr('Remove', 'حذف'),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (showRemark || state.remark.isNotEmpty)
+                          _RequirementCard(
+                            title: context.tr('Remark', 'الملاحظة'),
+                            icon: Icons.notes_outlined,
+                            required: false,
+                            completed: state.remark.trim().isNotEmpty,
+                            child: TextFormField(
+                              key: const ValueKey('execution-remark'),
+                              initialValue: state.remark,
+                              minLines: 3,
+                              maxLines: 6,
+                              onChanged: coordinator.setRemark,
+                              decoration: InputDecoration(
+                                hintText: context.tr(
+                                  'Add any useful details',
+                                  'أضف أي تفاصيل مفيدة',
+                                ),
+                                border: const OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        if (state.requiresForm)
+                          _RequirementCard(
+                            sectionKey: const ValueKey('form-section'),
+                            title: context.tr(
+                              'Additional Information',
+                              'معلومات إضافية',
+                            ),
+                            icon: Icons.description_outlined,
+                            required: coordinator.form.state.visibleQuestions
+                                .any((q) => q.required),
+                            completed:
+                                coordinator.form.confirmedAnswers(
+                                  forSubmission: false,
+                                  showErrors: false,
+                                ) !=
+                                null,
+                            child: CapDynamicForm(
+                              cubit: coordinator.form,
+                              embedded: true,
+                              forSubmission: false,
+                              capture: (q) => capture.capture(context, q),
+                              onRetry: coordinator.retryForm,
+                              onConfirmed: (_) => coordinator.completeForm(),
+                            ),
+                          ),
+                        if (state.unknownPhotoPolicy)
+                          _ErrorNotice(
+                            message: context.tr(
+                              'Photo requirements are unavailable. Please try again later.',
+                              'متطلبات الصورة غير متاحة. يرجى المحاولة لاحقًا.',
+                            ),
+                          ),
+                      ],
+                      if (selecting) ...[
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          margin: const EdgeInsets.only(bottom: 20),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.group_outlined,
+                                size: 32,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onPrimaryContainer,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                context.tr(
+                                  'Choose an engineer',
+                                  'اختر المهندس',
+                                ),
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimaryContainer,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                context.tr(
+                                  'Select a team member to assign this incident.',
+                                  'اختر أحد أعضاء الفريق لإسناد البلاغ إليه.',
+                                ),
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimaryContainer,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        TextButton(
-                          onPressed: coordinator.retryTeam,
-                          child: Text(
-                            context.tr('Reload team', 'إعادة تحميل الفريق'),
+                        Text(
+                          context.tr(
+                            'Team members (${state.team.length})',
+                            'أعضاء الفريق (${state.team.length})',
+                          ),
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 12),
+                        if (state.team.isEmpty)
+                          _ErrorNotice(
+                            message: context.tr(
+                              'No team members available',
+                              'لا يوجد أعضاء فريق متاحون',
+                            ),
+                            onRetry: coordinator.retryTeam,
+                          ),
+                        for (final member in state.team)
+                          _TeamMemberCard(
+                            name: member.name,
+                            userName: member.userName,
+                            mobile: member.mobile,
+                            selected:
+                                state.execution?.assignedUserId == member.id,
+                            onTap: () => coordinator.selectMember(member.id),
+                          ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          key: const ValueKey('assignment-remark'),
+                          initialValue: state.execution?.remark ?? '',
+                          minLines: 2,
+                          maxLines: 4,
+                          onChanged: coordinator.setRemark,
+                          decoration: InputDecoration(
+                            labelText: context.tr(
+                              'Remark (optional)',
+                              'الملاحظة (اختياري)',
+                            ),
+                            alignLabelWithHint: true,
+                            filled: true,
+                            fillColor: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerLow,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
                           ),
                         ),
                       ],
-                      ...state.team.map(
-                        (member) => ListTile(
-                          selected:
-                              state.execution?.assignedUserId == member.id,
-                          leading: Icon(
-                            state.execution?.assignedUserId == member.id
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_off,
-                          ),
-                          title: Text(member.name),
-                          subtitle: Text(
-                            '${member.userName} · ${member.mobile}',
-                          ),
-                          onTap: () => coordinator.selectMember(member.id),
-                        ),
-                      ),
                     ],
-                    if (state.execution != null &&
-                        (state.stage ==
-                                ActionConfigurationStage.readyToContinue ||
-                            state.stage ==
-                                ActionConfigurationStage.selectingTeam)) ...[
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        key: const ValueKey('execution-remark'),
-                        initialValue: state.execution!.remark,
-                        minLines: 1,
-                        maxLines: 3,
-                        onChanged: coordinator.setRemark,
-                        decoration: InputDecoration(
-                          labelText: context.tr(
-                            'Remark (optional)',
-                            'الملاحظة (اختياري)',
-                          ),
-                          border: const OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      AppButton(
-                        label:
-                            state.stage ==
-                                    ActionConfigurationStage.readyToContinue &&
-                                widget.action.type == IncidentAction.assign
-                            ? context.tr(
-                                'Continue to team selection',
-                                'متابعة لاختيار عضو الفريق',
-                              )
-                            : context.tr('Confirm action', 'تأكيد الإجراء'),
-                        onPressed:
-                            state.stage ==
-                                    ActionConfigurationStage.selectingTeam &&
-                                state.execution!.assignedUserId == null
-                            ? null
-                            : coordinator.continueExecution,
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    AppButton(
-                      label: context.tr(
-                        'Back to incident',
-                        'العودة إلى البلاغ',
-                      ),
-                      onPressed:
-                          state.stage == ActionConfigurationStage.submitting
-                          ? null
-                          : () => Navigator.pop(
-                              context,
-                              state.stage == ActionConfigurationStage.succeeded,
-                            ),
-                    ),
-                  ],
+                  ),
                 ),
+                if (requirements || selecting || state.executionFailure != null)
+                  Material(
+                    elevation: 4,
+                    color: Theme.of(context).colorScheme.surface,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: AppButton(
+                        key: const ValueKey('requirements-continue'),
+                        expanded: true,
+                        label: selecting
+                            ? context.tr('Confirm assignment', 'تأكيد الإسناد')
+                            : actionLabel(context),
+                        loading: working,
+                        onPressed: enabled
+                            ? () {
+                                FocusScope.of(context).unfocus();
+                                coordinator.continueExecution();
+                              }
+                            : null,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _TeamMemberCard extends StatelessWidget {
+  const _TeamMemberCard({
+    required this.name,
+    required this.userName,
+    required this.mobile,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String name, userName, mobile;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Semantics(
+        selected: selected,
+        child: Material(
+          color: selected
+              ? colors.primaryContainer
+              : colors.surfaceContainerLow,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: selected ? colors.primary : colors.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: selected
+                        ? colors.primary
+                        : colors.secondaryContainer,
+                    foregroundColor: selected
+                        ? colors.onPrimary
+                        : colors.onSecondaryContainer,
+                    child: const Icon(Icons.person_outline_rounded),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: selected
+                                    ? colors.onPrimaryContainer
+                                    : colors.onSurface,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 6,
+                          children: [
+                            Text(
+                              userName,
+                              textDirection: TextDirection.ltr,
+                              style: TextStyle(
+                                color: selected
+                                    ? colors.onPrimaryContainer
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                            Text(
+                              mobile,
+                              textDirection: TextDirection.ltr,
+                              style: TextStyle(
+                                color: selected
+                                    ? colors.onPrimaryContainer
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    color: selected ? colors.primary : colors.outline,
+                  ),
+                ],
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+}
+
+class _RequirementCard extends StatelessWidget {
+  const _RequirementCard({
+    this.sectionKey,
+    required this.title,
+    required this.icon,
+    required this.required,
+    required this.completed,
+    this.busy = false,
+    required this.child,
+  });
+  final Key? sectionKey;
+  final String title;
+  final IconData icon;
+  final bool required, completed, busy;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      key: sectionKey,
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 0,
+      color: colors.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: colors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                if (required)
+                  Text(
+                    context.tr('Required', 'مطلوب'),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                if (completed && !busy)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle, size: 18, color: colors.primary),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          context.tr('Completed', 'مكتمل'),
+                          style: TextStyle(color: colors.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            if (busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(),
+              ),
+            const SizedBox(height: 16),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorNotice extends StatelessWidget {
+  const _ErrorNotice({required this.message, this.onRetry});
+  final String message;
+  final VoidCallback? onRetry;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          message,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+        if (onRetry != null)
+          TextButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: Text(context.tr('Retry', 'إعادة المحاولة')),
+          ),
+      ],
     ),
   );
 }

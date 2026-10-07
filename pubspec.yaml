@@ -50,6 +50,8 @@ dependencies:
   # `win32` that conflicts with flutter_secure_storage.
   package_info_plus: ^10.2.1
   image_picker: ^1.2.3
+  crop_your_image: ^2.0.1
+  image: ^4.10.1
   record: ^6.2.1
   path_provider: ^2.1.6
   geolocator: ^14.0.2

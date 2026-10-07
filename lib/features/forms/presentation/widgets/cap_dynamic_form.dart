@@ -20,12 +20,16 @@ class CapDynamicForm extends StatelessWidget {
     required this.onRetry,
     this.capture,
     this.forSubmission = true,
+    this.embedded = false,
   });
   final CapFormCubit cubit;
   final ValueChanged<List<CapFormAnswer>> onConfirmed;
   final VoidCallback onRetry;
   final CapFormCapture? capture;
   final bool forSubmission;
+
+  /// Render the existing questions in a parent scroll view with one outer CTA.
+  final bool embedded;
   @override
   Widget build(BuildContext context) => BlocBuilder<CapFormCubit, CapFormState>(
     bloc: cubit,
@@ -57,112 +61,115 @@ class CapDynamicForm extends StatelessWidget {
           child: Text(context.tr('No form loaded', 'لم يتم تحميل نموذج')),
         );
       }
+      final children = <Widget>[
+        if (state.submitting) const LinearProgressIndicator(),
+        if (state.submissionFailure case final failure?)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              failure is ServiceFailure &&
+                      failure.code == 'form_evidence_contract'
+                  ? context.tr(
+                      'Evidence is saved in this form. Sending it awaits confirmation of the API encoding.',
+                      'الإثبات محفوظ داخل النموذج. إرساله ينتظر تأكيد صيغة الـAPI.',
+                    )
+                  : failure.message,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        Text(form.title, style: Theme.of(context).textTheme.headlineSmall),
+        if (form.description.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              form.description.replaceAll(RegExp(r'<[^>]*>'), '').trim(),
+            ),
+          ),
+        if (form.questions.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              context.tr(
+                'This form has no questions',
+                'هذا النموذج لا يحتوي على أسئلة',
+              ),
+            ),
+          ),
+        for (final question in state.visibleQuestions)
+          Card(
+            key: ValueKey('question-${form.id}-${question.id}'),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '${question.title}${question.required ? ' *' : ''}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Text(
+                    question.required
+                        ? context.tr('Required', 'مطلوب')
+                        : context.tr('Optional', 'اختياري'),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  AbsorbPointer(
+                    absorbing: state.submitting || state.submitted,
+                    child: _QuestionInput(
+                      key: ValueKey('${form.id}-${question.id}'),
+                      question: question,
+                      values: state.answers[question.id] ?? const [],
+                      cubit: cubit,
+                      capture: capture,
+                    ),
+                  ),
+                  if (state.errors[question.id] case final error?)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _error(context, error),
+                        semanticsLabel: _error(context, error),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        if (!embedded) const SizedBox(height: 16),
+        if (!embedded)
+          AppButton(
+            label: context.tr('Confirm', 'تأكيد'),
+            loading: state.submitting,
+            onPressed: state.submitted
+                ? null
+                : () {
+                    FocusScope.of(context).unfocus();
+                    final answers = cubit.confirmedAnswers(
+                      forSubmission: forSubmission,
+                    );
+                    if (answers != null) onConfirmed(answers);
+                  },
+          ),
+      ];
       return Material(
         color: Colors.transparent,
-        child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            children: [
-              if (state.submitting) const LinearProgressIndicator(),
-              if (state.submissionFailure case final failure?)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    failure is ServiceFailure &&
-                            failure.code == 'form_evidence_contract'
-                        ? context.tr(
-                            'Evidence is saved in this form. Sending it awaits confirmation of the API encoding.',
-                            'الإثبات محفوظ داخل النموذج. إرساله ينتظر تأكيد صيغة الـAPI.',
-                          )
-                        : failure.message,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-              Text(
-                form.title,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              if (form.description.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    form.description.replaceAll(RegExp(r'<[^>]*>'), '').trim(),
-                  ),
-                ),
-              if (form.questions.isEmpty)
-                Padding(
+        child: embedded
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              )
+            : SafeArea(
+                child: ListView(
                   padding: const EdgeInsets.all(16),
-                  child: Text(
-                    context.tr(
-                      'This form has no questions',
-                      'هذا النموذج لا يحتوي على أسئلة',
-                    ),
-                  ),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  children: children,
                 ),
-              for (final question in state.visibleQuestions)
-                Card(
-                  key: ValueKey('question-${form.id}-${question.id}'),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          '${question.title}${question.required ? ' *' : ''}',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        Text(
-                          question.required
-                              ? context.tr('Required', 'مطلوب')
-                              : context.tr('Optional', 'اختياري'),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: 8),
-                        AbsorbPointer(
-                          absorbing: state.submitting || state.submitted,
-                          child: _QuestionInput(
-                            key: ValueKey('${form.id}-${question.id}'),
-                            question: question,
-                            values: state.answers[question.id] ?? const [],
-                            cubit: cubit,
-                            capture: capture,
-                          ),
-                        ),
-                        if (state.errors[question.id] case final error?)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              _error(context, error),
-                              semanticsLabel: _error(context, error),
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              AppButton(
-                label: context.tr('Confirm', 'تأكيد'),
-                loading: state.submitting,
-                onPressed: state.submitted
-                    ? null
-                    : () {
-                        FocusScope.of(context).unfocus();
-                        final answers = cubit.confirmedAnswers(
-                          forSubmission: forSubmission,
-                        );
-                        if (answers != null) onConfirmed(answers);
-                      },
               ),
-            ],
-          ),
-        ),
       );
     },
   );

@@ -325,7 +325,7 @@ void main() {
   });
 
   testWidgets(
-    'real details drives action; explicit confirmation executes once and refreshes details',
+    'real details drives action; null configuration skips requirements and refreshes after execution',
     (tester) async {
       final details = _Details()
         ..gate = Completer<Result<IncidentDetailsData>>();
@@ -374,20 +374,14 @@ void main() {
         find.descendant(of: area, matching: find.text('New Request')),
         findsNothing,
       );
-      final before = bloc.state.generalData;
       await tester.tap(
         find.descendant(of: area, matching: find.text('Approve')),
       );
       await tester.pumpAndSettle();
       expect(configuration.ids, [3]);
-      expect(find.text('Ready to continue'), findsOneWidget);
-      expect(bloc.state.generalData, same(before));
-      expect(details.calls, 1);
+      expect(find.text('Ready to continue'), findsNothing);
       final executor =
           services<IncidentExecutionRepository>() as _UnusedExecution;
-      expect(executor.executed, isEmpty);
-      await tester.tap(find.text('Confirm action'));
-      await tester.pumpAndSettle();
       expect(executor.executed, hasLength(1));
       expect(executor.executed.single.incidentId, buildIncident().incidentId);
       expect(executor.executed.single.actionTypeId, 3);

@@ -113,7 +113,10 @@ class CapFormCubit extends Cubit<CapFormState> {
 
   /// No API is invoked. Returns only validated visible answers.
   /// Each selected option remains its own answer for the parent question.
-  List<CapFormAnswer>? confirmedAnswers({bool forSubmission = true}) {
+  List<CapFormAnswer>? confirmedAnswers({
+    bool forSubmission = true,
+    bool showErrors = true,
+  }) {
     if (isClosed ||
         state.form == null ||
         state.loading ||
@@ -144,9 +147,11 @@ class CapFormCubit extends Cubit<CapFormState> {
         result.addAll(filled);
       }
     }
-    emit(
-      CapFormState(form: state.form, answers: state.answers, errors: errors),
-    );
+    if (showErrors) {
+      emit(
+        CapFormState(form: state.form, answers: state.answers, errors: errors),
+      );
+    }
     return errors.isEmpty ? List.unmodifiable(result) : null;
   }
 

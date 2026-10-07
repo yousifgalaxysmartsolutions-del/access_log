@@ -249,10 +249,10 @@ void main() {
         await cubit.start();
         expect(transport.trace, [
           'GetIncedientActionConfiguration',
-          'gps',
-          'photo',
           'GetFormQuestion',
         ]);
+        await cubit.capturePhoto();
+        await cubit.refreshLocation();
         confirmForm(cubit);
         cubit.setRemark('current remark');
         if (assign) {
@@ -318,6 +318,8 @@ void main() {
       };
       final cubit = flow(action(1, IncidentAction.assign), full: true);
       await cubit.start();
+      await cubit.capturePhoto();
+      await cubit.refreshLocation();
       await cubit.continueExecution();
       cubit.selectMember(4099);
       await cubit.continueExecution();
@@ -333,6 +335,8 @@ void main() {
       transport.failMutation = true;
       final cubit = flow(action(2, IncidentAction.approve), full: true);
       await cubit.start();
+      await cubit.refreshLocation();
+      await cubit.capturePhoto();
       confirmForm(cubit);
       cubit.setRemark('keep me');
       final retained = cubit.state.execution;
@@ -437,6 +441,13 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         final selected = action(1, IncidentAction.assign);
         final cubit = flow(selected);
+        transport.configuration = {
+          'gpsRequired': false,
+          'photoRequiredLevel': 0,
+          'questionFormId': '1087',
+        };
+        await tester.runAsync(cubit.start);
+        confirmForm(cubit);
         bool? result;
         await tester.pumpWidget(
           MaterialApp(

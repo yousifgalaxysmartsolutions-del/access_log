@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:image/image.dart' as img;
+import 'package:crop_your_image/crop_your_image.dart';
+import 'package:access_log_plus/features/forms/presentation/widgets/cap_photo_editor.dart';
+import 'package:access_log_plus/widgets/app_button.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -42,9 +46,11 @@ class _Forms implements CapFormRepository {
   final List<String> trace;
   final ids = <int>[];
   Failure? failure;
+  Completer<Result<CapQuestionForm>>? gate;
   @override
   Future<Result<CapQuestionForm>> load(int id) async {
     trace.add('form');
+    if (gate != null) return gate!.future;
     ids.add(id);
     return failure != null
         ? FailureResult(failure!)
@@ -72,7 +78,8 @@ class _Forms implements CapFormRepository {
 const _assign = IncidentAvailableAction(
   type: IncidentAction.assign,
   actionTypeId: 1,
-  flow: IncidentActionFlow.assign, newStatusId: null,
+  flow: IncidentActionFlow.assign,
+  newStatusId: null,
 );
 
 class _Adapter implements HttpClientAdapter {
@@ -119,6 +126,7 @@ void main() {
   }) {
     final result = IncidentActionConfigurationCubit(
       action: action,
+      incidentId: 26,
       getConfiguration: GetIncidentActionConfigurationUseCase(config),
       form: CapFormCubit(GetCapFormUseCase(forms)),
       getLocation:
@@ -132,7 +140,14 @@ void main() {
           photo ??
           (level) async {
             trace.add('photo:$level');
-            return const ActionPhotoResult(ActionPhotoOutcome.completed);
+            return ActionPhotoResult(
+              ActionPhotoOutcome.completed,
+              evidence: CapFormEvidence(
+                name: 'photo.png',
+                mimeType: 'image/png',
+                bytes: img.encodePng(img.Image(width: 24, height: 16)),
+              ),
+            );
           },
     );
     addTearDown(() async {
@@ -141,27 +156,35 @@ void main() {
     return result;
   }
 
-  test('level 0 skips camera and loads configured form', () async {
-    config.result = const Success(
-      IncidentActionConfiguration(
-        gpsRequired: false,
-        photoRequiredLevel: 0,
-        questionFormId: '1087',
-      ),
-    );
-    final flow = coordinator(
-      photo: (level) => resolveActionPhoto(
-        level,
-        capturePhoto: () => throw StateError('Camera must not open'),
-      ),
-    );
-    await flow.start();
-    expect(trace, ['config', 'form']);
-    expect(forms.ids, [1087]);
-    expect(flow.state.stage, ActionConfigurationStage.formReady);
-  });
-
-  test('level 1 waits for captured photo before loading form 1087', () async {
+  test(
+    'null configuration reaches ready without GPS, photo, or form calls',
+    () async {
+      final flow = coordinator(
+        location: () => throw StateError('GPS must be skipped'),
+        photo: (_) => throw StateError('Photo must be skipped'),
+      );
+      await flow.start();
+      expect(trace, ['config']);
+      expect(flow.state.stage, ActionConfigurationStage.readyToContinue);
+      expect(flow.state.requirementsValid, isTrue);
+      expect(flow.state.hasRequirements, isFalse);
+      expect(flow.state.execution!.questionFormId, isNull);
+    },
+  );
+  test(
+    'configuration with no requirements skips collection and form',
+    () async {
+      config.result = const Success(
+        IncidentActionConfiguration(gpsRequired: false, photoRequiredLevel: 0),
+      );
+      final flow = coordinator();
+      await flow.start();
+      expect(trace, ['config']);
+      expect(flow.state.hasRequirements, isFalse);
+      expect(flow.state.requirementsValid, isTrue);
+    },
+  );
+  test('form loads before any location or photo capture', () async {
     config.result = const Success(
       IncidentActionConfiguration(
         gpsRequired: true,
@@ -169,154 +192,248 @@ void main() {
         questionFormId: '1087',
       ),
     );
-    final camera = Completer<CapFormEvidence?>();
-    final flow = coordinator(
-      photo: (level) => resolveActionPhoto(
-        level,
-        capturePhoto: () {
-          trace.add('camera');
-          return camera.future;
-        },
-      ),
-    );
-    final pending = flow.start();
-    await Future<void>.delayed(Duration.zero);
-    expect(trace, ['config', 'gps', 'camera']);
-    expect(forms.ids, isEmpty);
-    final evidence = CapFormEvidence(
-      name: 'photo.jpg',
-      mimeType: 'image/jpeg',
-      bytes: Uint8List.fromList([1, 2, 3]),
-    );
-    camera.complete(evidence);
-    await pending;
-    expect(trace, ['config', 'gps', 'camera', 'form']);
-    expect(forms.ids, [1087]);
-    expect(flow.state.photo, same(evidence));
-    expect(flow.state.stage, ActionConfigurationStage.formReady);
-  });
-
-  test('required photo cancellation prevents form loading', () async {
-    config.result = const Success(
-      IncidentActionConfiguration(
-        gpsRequired: false,
-        photoRequiredLevel: 1,
-        questionFormId: '1087',
-      ),
-    );
-    final flow = coordinator(
-      photo: (level) =>
-          resolveActionPhoto(level, capturePhoto: () async => null),
-    );
-    await flow.start();
-    expect(flow.state.failure, isA<CancelledFailure>());
-    expect(forms.ids, isEmpty);
-  });
-
-  test(
-    'undefined photo levels do not open camera or bypass requirements',
-    () async {
-      for (final level in <int?>[null, -1, 2]) {
-        final result = await resolveActionPhoto(
-          level,
-          capturePhoto: () => throw StateError('Undefined photo rule'),
-        );
-        expect(result.outcome, ActionPhotoOutcome.awaitingPolicy);
-      }
-    },
-  );
-
-  test(
-    'null config short circuits every requirement and property access',
-    () async {
-      final flow = coordinator(
-        location: () => throw StateError('GPS must never run'),
-        photo: (_) => throw StateError('Photo level must never be read'),
-      );
-      await flow.start();
-      expect(flow.state.stage, ActionConfigurationStage.readyToContinue);
-      expect(flow.state.configuration, isNull);
-      expect(trace, ['config']);
-      expect(forms.ids, isEmpty);
-      expect(flow.form.state.form, isNull);
-    },
-  );
-  test(
-    'non-null skips GPS and empty form, with resolved injected photo policy',
-    () async {
-      for (final id in [null, '', '   ']) {
-        trace.clear();
-        config.result = Success(
-          IncidentActionConfiguration(
-            gpsRequired: false,
-            questionFormId: id,
-            photoRequiredLevel: 0,
-          ),
-        );
-        final flow = coordinator();
-        await flow.start();
-        expect(trace, ['config', 'photo:0']);
-        expect(flow.state.stage, ActionConfigurationStage.readyToContinue);
-        expect(forms.ids, isEmpty);
-      }
-    },
-  );
-  test('GPS precedes photo, no form requested without FormId', () async {
-    config.result = const Success(
-      IncidentActionConfiguration(gpsRequired: true, photoRequiredLevel: 1),
-    );
     final flow = coordinator();
     await flow.start();
-    expect(trace, ['config', 'gps', 'photo:1']);
-    expect(flow.state.location, '30,31');
-    expect(flow.state.stage, ActionConfigurationStage.readyToContinue);
+    expect(trace, ['config', 'form']);
+    expect(forms.ids, [1087]);
+    expect(flow.state.requirementsValid, isFalse);
+    // Collect in a different order; no sequential dependency.
+    flow.form.text(flow.form.state.form!.questions.single, 'serial');
+    flow.completeForm();
+    await flow.capturePhoto();
+    await flow.refreshLocation();
+    expect(flow.state.requirementsValid, isTrue);
+    expect(flow.state.execution!.lat, '30');
+    expect(flow.state.execution!.long, '31');
+    expect(flow.state.execution!.questionFormId, 1087);
+    expect(flow.state.execution!.answers.single.text, 'serial');
   });
   test(
-    'form uses existing usecase only after GPS/photo, requires valid confirmation',
+    'required photo deletion disables execution and preserves form, GPS, and remark',
     () async {
       config.result = const Success(
         IncidentActionConfiguration(
           gpsRequired: true,
-          photoRequiredLevel: 9,
-          questionFormId: '1085',
+          photoRequiredLevel: 1,
+          questionFormId: '1087',
         ),
       );
       final flow = coordinator();
       await flow.start();
-      expect(trace, ['config', 'gps', 'photo:9', 'form']);
-      expect(forms.ids, [1085]);
-      expect(flow.state.stage, ActionConfigurationStage.formReady);
+      flow.setRemark('keep remark');
+      flow.form.text(flow.form.state.form!.questions.single, 'serial');
       flow.completeForm();
-      expect(flow.state.stage, ActionConfigurationStage.formReady);
-      flow.form.text(flow.form.state.form!.questions.single, 'test serial');
-      flow.completeForm();
-      expect(flow.state.stage, ActionConfigurationStage.readyToContinue);
-      expect(flow.state.answers.single.text, 'test serial');
-      expect(trace, ['config', 'gps', 'photo:9', 'form']);
+      await flow.capturePhoto();
+      await flow.refreshLocation();
+      expect(flow.state.requirementsValid, isTrue);
+      flow.removePhoto();
+      expect(flow.state.requirementsValid, isFalse);
+      expect(flow.state.execution, isNull);
+      expect(flow.state.remark, 'keep remark');
+      expect(flow.state.location, '30,31');
+      expect(flow.form.state.answers[702]!.single.text, 'serial');
+      await flow.capturePhoto();
+      expect(flow.state.execution!.remark, 'keep remark');
+      expect(flow.state.execution!.answers.single.text, 'serial');
     },
   );
   test(
-    'default photo handler invents no meaning even for null/zero/one',
+    'refresh preserves photo and answers; invalid GPS fails closed without deleting prior valid location',
     () async {
-      for (final level in [null, 0, 1, 9]) {
-        trace.clear();
-        config.result = Success(
-          IncidentActionConfiguration(
-            gpsRequired: false,
-            photoRequiredLevel: level,
-            questionFormId: '1085',
+      config.result = const Success(
+        IncidentActionConfiguration(gpsRequired: true, photoRequiredLevel: 0),
+      );
+      var location = 'invalid';
+      final flow = coordinator(location: () async => location);
+      await flow.start();
+      await flow.refreshLocation();
+      expect(flow.state.requirementsValid, isFalse);
+      expect(flow.state.locationFailure, isNotNull);
+      location = '30,31';
+      await flow.refreshLocation();
+      expect(flow.state.requirementsValid, isTrue);
+      location = '500,31';
+      await flow.refreshLocation();
+      expect(flow.state.location, '30,31');
+      expect(flow.state.locationFailure, isNotNull);
+    },
+  );
+  test('capture and edit cancellation preserve the original photo', () async {
+    config.result = const Success(
+      IncidentActionConfiguration(gpsRequired: false, photoRequiredLevel: 1),
+    );
+    var cancel = false;
+    final evidence = CapFormEvidence(
+      name: 'photo.png',
+      mimeType: 'image/png',
+      bytes: img.encodePng(img.Image(width: 24, height: 16)),
+    );
+    final flow = coordinator(
+      photo: (_) async => ActionPhotoResult(
+        cancel ? ActionPhotoOutcome.cancelled : ActionPhotoOutcome.completed,
+        evidence: cancel ? null : evidence,
+      ),
+    );
+    await flow.start();
+    await flow.capturePhoto();
+    cancel = true;
+    await flow.capturePhoto();
+    expect(flow.state.photo, same(evidence));
+    await flow.editPhoto((_) async => null);
+    expect(flow.state.photo, same(evidence));
+    final edited = CapFormEvidence(
+      name: 'edited.jpg',
+      mimeType: 'image/jpeg',
+      bytes: Uint8List.fromList([4, 5, 6]),
+    );
+    await flow.editPhoto((_) async => edited);
+    expect(flow.state.photo, same(edited));
+    expect(flow.state.execution!.photo, 'BAUG');
+  });
+  test(
+    'loading a form does not block location or camera; late form preserves busy capture',
+    () async {
+      config.result = const Success(
+        IncidentActionConfiguration(
+          gpsRequired: true,
+          photoRequiredLevel: 1,
+          questionFormId: '1087',
+        ),
+      );
+      forms.gate = Completer<Result<CapQuestionForm>>();
+      final camera = Completer<ActionPhotoResult>();
+      final flow = coordinator(photo: (_) => camera.future);
+      final start = flow.start();
+      await Future<void>.delayed(Duration.zero);
+      expect(flow.state.stage, ActionConfigurationStage.loadingForm);
+      await flow.refreshLocation();
+      final capture = flow.capturePhoto();
+      expect(flow.state.photoBusy, isTrue);
+      forms.gate!.complete(
+        Success(CapQuestionForm(id: 1087, title: 'Form', questions: const [])),
+      );
+      await start;
+      expect(flow.state.photoBusy, isTrue);
+      expect(flow.state.requirementsValid, isFalse);
+      camera.complete(
+        ActionPhotoResult(
+          ActionPhotoOutcome.completed,
+          evidence: CapFormEvidence(
+            name: 'p.jpg',
+            mimeType: 'image/jpeg',
+            bytes: Uint8List.fromList([1]),
           ),
-        );
-        final flow = coordinator(photo: unresolvedActionPhotoPolicy);
-        await flow.start();
-        expect(flow.state.stage, ActionConfigurationStage.waitingForPhoto);
-        expect(trace, ['config']);
-        expect(forms.ids, isEmpty);
-      }
+        ),
+      );
+      await capture;
+      expect(flow.state.execution!.lat, '30');
+      expect(flow.state.requirementsValid, isTrue);
     },
   );
   test(
-    'all six action types including Assign use selected ID, not name or fixed 8',
+    'duplicate location taps are single flight and disable final action while pending',
+    () async {
+      config.result = const Success(
+        IncidentActionConfiguration(gpsRequired: true, photoRequiredLevel: 0),
+      );
+      final location = Completer<String?>();
+      var calls = 0;
+      final flow = coordinator(
+        location: () {
+          calls++;
+          return location.future;
+        },
+      );
+      await flow.start();
+      final pending = flow.refreshLocation();
+      await flow.refreshLocation();
+      expect(calls, 1);
+      expect(flow.state.locationBusy, isTrue);
+      expect(flow.state.execution, isNull);
+      location.complete('30,31');
+      await pending;
+      expect(flow.state.requirementsValid, isTrue);
+    },
+  );
+  test(
+    'form validity uses existing conditional and required validation without emitting errors on reads',
+    () async {
+      config.result = const Success(
+        IncidentActionConfiguration(
+          gpsRequired: false,
+          photoRequiredLevel: 0,
+          questionFormId: '1087',
+        ),
+      );
+      final flow = coordinator();
+      await flow.start();
+      expect(flow.state.requirementsValid, isFalse);
+      expect(flow.form.state.errors, isEmpty);
+      flow.completeForm();
+      expect(flow.form.state.errors[702], CapFormError.required);
+      flow.form.text(flow.form.state.form!.questions.single, 'valid');
+      await Future<void>.delayed(Duration.zero);
+      expect(flow.state.requirementsValid, isTrue);
+      flow.form.text(flow.form.state.form!.questions.single, '');
+      await Future<void>.delayed(Duration.zero);
+      expect(flow.state.requirementsValid, isFalse);
+      expect(flow.state.execution, isNull);
+    },
+  );
+  test(
+    'form retry does not refetch configuration or lose collected inputs',
+    () async {
+      config.result = const Success(
+        IncidentActionConfiguration(
+          gpsRequired: true,
+          photoRequiredLevel: 1,
+          questionFormId: '1087',
+        ),
+      );
+      forms.failure = const UnknownFailure();
+      final flow = coordinator();
+      await flow.start();
+      await flow.refreshLocation();
+      await flow.capturePhoto();
+      flow.setRemark('saved');
+      forms.failure = null;
+      await flow.retryForm();
+      expect(trace.where((s) => s == 'config'), hasLength(1));
+      expect(flow.state.photo, isNotNull);
+      expect(flow.state.location, '30,31');
+      expect(flow.state.remark, 'saved');
+      expect(flow.form.state.form!.id, 1087);
+    },
+  );
+  test('unknown photo levels are not guessed', () async {
+    for (final level in <int?>[null, 9]) {
+      config.result = Success(
+        IncidentActionConfiguration(
+          gpsRequired: false,
+          photoRequiredLevel: level,
+        ),
+      );
+      final flow = coordinator();
+      await flow.start();
+      expect(flow.state.unknownPhotoPolicy, isTrue);
+      expect(flow.state.requirementsValid, isFalse);
+    }
+  });
+  test('invalid FormId stops loading without guessing', () async {
+    config.result = const Success(
+      IncidentActionConfiguration(
+        gpsRequired: false,
+        photoRequiredLevel: 0,
+        questionFormId: 'wrong',
+      ),
+    );
+    final flow = coordinator();
+    await flow.start();
+    expect(forms.ids, isEmpty);
+    expect(flow.state.failure, isA<ValidationFailure>());
+  });
+  test(
+    'all action types still use selected IDs and request flow is excluded',
     () async {
       for (final type in [
         IncidentAction.assign,
@@ -330,102 +447,70 @@ void main() {
           action: IncidentAvailableAction(
             type: type,
             actionTypeId: 37,
+            newStatusId: 3,
             flow: type == IncidentAction.assign
                 ? IncidentActionFlow.assign
-                : IncidentActionFlow.actionType, newStatusId: null,
+                : IncidentActionFlow.actionType,
           ),
         );
         await flow.start();
         expect(config.ids.last, 37);
-        expect(flow.state.stage, ActionConfigurationStage.readyToContinue);
       }
-    },
-  );
-  test(
-    'Request type cannot accidentally use its ID as an ActionTypeId',
-    () async {
-      final flow = coordinator(
+      final request = coordinator(
         action: const IncidentAvailableAction(
           type: IncidentAction.interventionRequest,
+          actionTypeId: 1,
+          newStatusId: null,
           flow: IncidentActionFlow.request,
-          actionTypeId: 1, newStatusId: null,
         ),
       );
-      await flow.start();
-      expect(trace, isEmpty);
-      expect(flow.state.stage, ActionConfigurationStage.failure);
+      final calls = config.ids.length;
+      await request.start();
+      expect(config.ids.length, calls);
+      expect(request.state.failure, isA<ValidationFailure>());
     },
   );
-  test('config failure prevents all downstream work', () async {
-    config.result = const FailureResult(NetworkFailure());
-    final flow = coordinator();
-    await flow.start();
-    expect(trace, ['config']);
-    expect(flow.state.failure, isA<NetworkFailure>());
-  });
-  test('GPS exception and cancellation prevent photo and form', () async {
-    config.result = const Success(
-      IncidentActionConfiguration(gpsRequired: true, questionFormId: '1085'),
-    );
-    for (final fails in [true, false]) {
-      trace.clear();
-      final flow = coordinator(
-        location: () async {
-          if (fails) throw Exception('permission');
-          return null;
-        },
-      );
-      await flow.start();
-      expect(flow.state.stage, ActionConfigurationStage.failure);
-      expect(trace, ['config']);
-    }
-  });
   test(
-    'photo error/cancel stops form; form error preserves typed failure',
+    'GPS and photo errors remain local and do not discard other fields',
     () async {
       config.result = const Success(
-        IncidentActionConfiguration(gpsRequired: false, questionFormId: '1085'),
+        IncidentActionConfiguration(gpsRequired: true, photoRequiredLevel: 1),
       );
-      for (final fails in [true, false]) {
-        final flow = coordinator(
-          photo: (_) async {
-            if (fails) throw Exception('camera');
-            return const ActionPhotoResult(ActionPhotoOutcome.cancelled);
-          },
-        );
-        await flow.start();
-        expect(flow.state.stage, ActionConfigurationStage.failure);
-        expect(forms.ids, isEmpty);
-      }
-      forms.failure = const NetworkFailure();
-      final flow = coordinator();
+      final flow = coordinator(
+        location: () async => throw const FormatException('GPS disabled'),
+        photo: (_) async => throw const FormatException('Camera unavailable'),
+      );
       await flow.start();
-      expect(flow.state.failure, isA<NetworkFailure>());
+      flow.setRemark('saved');
+      await flow.refreshLocation();
+      await flow.capturePhoto();
+      expect(flow.state.locationFailure, isNotNull);
+      expect(flow.state.photoFailure, isNotNull);
+      expect(flow.state.remark, 'saved');
+      expect(flow.state.requirementsValid, isFalse);
     },
   );
-  test('invalid form ID is not guessed and cannot reach ready', () async {
-    config.result = const Success(
-      IncidentActionConfiguration(gpsRequired: false, questionFormId: 'wrong'),
-    );
+  test('late configuration and captures after closing do not emit', () async {
+    config.gate = Completer<Result<IncidentActionConfiguration?>>();
     final flow = coordinator();
+    final pending = flow.start();
     await flow.start();
-    expect(forms.ids, isEmpty);
-    expect(flow.state.failure, isA<ValidationFailure>());
+    expect(config.ids, hasLength(1));
+    await flow.close();
+    config.gate!.complete(const Success(null));
+    await pending;
+    config.gate = null;
+    config.result = const Success(
+      IncidentActionConfiguration(gpsRequired: true, photoRequiredLevel: 0),
+    );
+    final gps = Completer<String?>();
+    final second = coordinator(location: () => gps.future);
+    await second.start();
+    final capture = second.refreshLocation();
+    await second.close();
+    gps.complete('30,31');
+    await capture;
   });
-  test(
-    'duplicate starts make one call; completion after close is ignored',
-    () async {
-      config.gate = Completer<Result<IncidentActionConfiguration?>>();
-      final flow = coordinator();
-      final pending = flow.start();
-      await flow.start();
-      expect(config.ids.length, 1);
-      await flow.close();
-      config.gate!.complete(const Success(null));
-      await pending;
-      expect(trace, ['config']);
-    },
-  );
   test(
     'repository preserves exact endpoint/envelope; success-null vs failure-null',
     () async {
@@ -479,41 +564,168 @@ void main() {
       expect(await repository.getConfiguration(8), isA<FailureResult>());
     },
   );
+
   for (final lang in ['en', 'ar']) {
-    testWidgets(
-      'null config ready screen uses existing direction and large text in $lang',
-      (tester) async {
-        tester.view.physicalSize = const Size(320, 640);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        final flow = coordinator();
-        await tester.pumpWidget(
-          MaterialApp(
-            locale: Locale(lang),
-            supportedLocales: const [Locale('ar'), Locale('en')],
-            localizationsDelegates: GlobalMaterialLocalizations.delegates,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: const TextScaler.linear(2)),
-              child: child!,
+    for (final sections in ['gps', 'photo', 'all']) {
+      testWidgets(
+        'unified $sections sections and sticky CTA fit narrow large text $lang',
+        (tester) async {
+          tester.view.physicalSize = const Size(320, 640);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          config.result = Success(
+            IncidentActionConfiguration(
+              gpsRequired: sections != 'photo',
+              photoRequiredLevel: sections == 'gps' ? 0 : 1,
+              questionFormId: sections == 'all' ? '1087' : null,
             ),
-            home: IncidentActionConfigurationScreen(
-              action: _assign,
-              coordinator: flow,
+          );
+          final flow = coordinator();
+          await flow.start();
+          await tester.pumpWidget(
+            MaterialApp(
+              locale: Locale(lang),
+              supportedLocales: const [Locale('en'), Locale('ar')],
+              localizationsDelegates: GlobalMaterialLocalizations.delegates,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(2)),
+                child: child!,
+              ),
+              home: IncidentActionConfigurationScreen(
+                action: _assign,
+                coordinator: flow,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(trace.where((s) => s == 'config'), hasLength(1));
+          expect(
+            find.byKey(const ValueKey('location-section')),
+            sections == 'photo' ? findsNothing : findsOneWidget,
+          );
+          if (sections != 'all') {
+            expect(
+              find.byKey(const ValueKey('photo-section')),
+              sections == 'gps' ? findsNothing : findsOneWidget,
+            );
+          }
+          expect(find.text('Confirm'), findsNothing);
+          final button = tester.widget<AppButton>(
+            find.byKey(const ValueKey('requirements-continue')),
+          );
+          expect(button.onPressed, isNull);
+          // Confirm all sections are present together, regardless of list laziness.
+          if (sections == 'all') {
+            await tester.scrollUntilVisible(
+              find.byKey(const ValueKey('photo-section')),
+              200,
+              scrollable: find.byType(Scrollable).first,
+            );
+            expect(find.byKey(const ValueKey('photo-section')), findsOneWidget);
+            await tester.scrollUntilVisible(
+              find.byKey(const ValueKey('form-section')),
+              200,
+              scrollable: find.byType(Scrollable).first,
+            );
+            expect(find.byKey(const ValueKey('form-section')), findsOneWidget);
+            flow.form.text(flow.form.state.form!.questions.single, 'serial');
+            flow.completeForm();
+          }
+          if (sections != 'gps') await flow.capturePhoto();
+          if (sections != 'photo') await flow.refreshLocation();
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<AppButton>(
+                  find.byKey(const ValueKey('requirements-continue')),
+                )
+                .onPressed,
+            isNotNull,
+          );
+          if (sections != 'gps') {
+            flow.removePhoto();
+            await tester.pumpAndSettle();
+            expect(
+              tester
+                  .widget<AppButton>(
+                    find.byKey(const ValueKey('requirements-continue')),
+                  )
+                  .onPressed,
+              isNull,
+            );
+          }
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
+  }
+  test('rotate uses the image library and changes actual pixel dimensions', () {
+    final original = img.encodePng(img.Image(width: 80, height: 40));
+    final rotated = img.decodeImage(rotatePhotoBytes(original))!;
+    expect(rotated.width, 40);
+    expect(rotated.height, 80);
+  });
+  testWidgets(
+    'library editor crops and returns the edited image to its caller',
+    (tester) async {
+      final photo = CapFormEvidence(
+        name: 'p.png',
+        mimeType: 'image/png',
+        bytes: img.encodePng(img.Image(width: 80, height: 40)),
+      );
+      CapFormEvidence? edited;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () async {
+                  edited = await Navigator.push<CapFormEvidence>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CapPhotoEditor(photo: photo),
+                    ),
+                  );
+                },
+                child: const Text('Open editor'),
+              ),
             ),
           ),
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.text(lang == 'ar' ? 'جاهز للمتابعة' : 'Ready to continue'),
-          findsOneWidget,
-        );
-        expect(trace, ['config']);
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
-  }
+        ),
+      );
+      await tester.tap(find.text('Open editor'));
+      await tester.pump();
+      Future<void> waitFor(bool Function() done) async {
+        await tester.runAsync(() async {
+          final elapsed = Stopwatch()..start();
+          while (!done() && elapsed.elapsed < const Duration(seconds: 5)) {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+            await tester.pump();
+          }
+        });
+        expect(done(), isTrue);
+      }
+
+      await waitFor(
+        () =>
+            find.byType(AppButton).evaluate().isNotEmpty &&
+            tester.widget<AppButton>(find.byType(AppButton)).onPressed != null,
+      );
+      final crop = tester.widget<Crop>(find.byType(Crop));
+      crop.controller!.area = ImageBasedRect.fromLTWH(0, 0, 40, 20);
+      await tester.pump();
+      await tester.tap(find.text('Use photo'));
+      await waitFor(() => edited != null);
+      await tester.pumpAndSettle();
+      final image = img.decodeImage(edited!.bytes)!;
+      expect(image.width, 40);
+      expect(image.height, 20);
+      expect(find.text('Open editor'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
