@@ -21,6 +21,7 @@ abstract final class IncidentMapper {
     final status = mapStatus(id: item.statusId, name: item.statusName);
     return CapIncident(
       incidentId: item.incidentId,
+      backendStatusId: item.statusId,
       number: _valueOr(item.incidentNo, 'CAP-${item.incidentId}'),
       type: item.incidentType.isEmpty ? 'CAP Incident' : item.incidentType,
       siteName: item.locationName,

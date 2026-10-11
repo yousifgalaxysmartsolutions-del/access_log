@@ -11,5 +11,10 @@ class GetIncidentListUseCase {
   Future<Result<List<CapIncident>>> call({
     required DateTime day,
     DateTime? toDate,
-  }) => _repository.getIncidentsForDay(day: day, toDate: toDate);
+    int statusId = -1,
+  }) => _repository.getIncidentsForDay(
+    day: day,
+    toDate: toDate,
+    statusId: statusId,
+  );
 }

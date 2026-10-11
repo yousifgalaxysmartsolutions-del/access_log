@@ -11,6 +11,7 @@ import 'package:access_log_plus/features/incidents/data/models/incident_list_mod
 import 'package:access_log_plus/models/models.dart';
 
 class ListRepositoryFake implements IncidentRepository {
+  final statusIds = <int>[];
   @override
   Future<Result<IncidentLookupData>> getIncidentLookup() async =>
       Success(IncidentLookupData());
@@ -21,8 +22,10 @@ class ListRepositoryFake implements IncidentRepository {
   Future<Result<List<CapIncident>>> getIncidentsForDay({
     required DateTime day,
     DateTime? toDate,
+    int statusId = -1,
   }) {
     calls.add((day, toDate ?? day));
+    statusIds.add(statusId);
     return gate?.future ?? Future.value(result);
   }
 }
@@ -49,6 +52,21 @@ CapIncident apiIncident(
 );
 
 void main() {
+  test(
+    'Lookup status ID survives load and refresh; clearing resets to all',
+    () async {
+      final repository = ListRepositoryFake();
+      final bloc = IncidentListBloc(GetIncidentListUseCase(repository));
+      addTearDown(bloc.close);
+      final day = DateTime(2026, 10, 7);
+      await bloc.load(day, day, statusId: 407);
+      expect(bloc.state.statusId, 407);
+      await bloc.load(day, day, statusId: 407);
+      await bloc.load(day, day);
+      expect(repository.statusIds, [407, 407, -1]);
+      expect(bloc.state.statusId, -1);
+    },
+  );
   test('normalizes today, explicit and one-sided ranges', () {
     final today = DateTime(2030, 2, 3, 15);
     final day = DateTime(2030, 2, 3);

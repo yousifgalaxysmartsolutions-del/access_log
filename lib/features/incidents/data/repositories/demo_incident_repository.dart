@@ -19,6 +19,7 @@ class DemoIncidentRepository implements IncidentRepository {
   Future<Result<List<CapIncident>>> getIncidentsForDay({
     required DateTime day,
     DateTime? toDate,
+    int statusId = -1,
   }) async => Success(prototypeDay);
 
   /// Fixed prototype day, kept independent of the wall clock so the demo and the

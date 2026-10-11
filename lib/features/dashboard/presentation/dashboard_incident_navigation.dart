@@ -1,0 +1,71 @@
+import 'package:flutter/material.dart';
+import '../../../core/di/injection.dart';
+import '../../../core/localization/app_strings.dart';
+import '../../../core/routes/app_routes.dart';
+import '../../../models/models.dart';
+import '../../incidents/data/incident_lookup_store.dart';
+import '../../incidents/data/models/incident_lookup_models.dart';
+
+/// Matches semantic codes/names, but always takes the numeric ID from Lookup.
+class DashboardIncidentNavigation {
+  static IncidentListFilter? resolve(
+    CapIncidentStatus status,
+    IncidentLookupData lookup,
+  ) {
+    final codes = switch (status) {
+      CapIncidentStatus.needAssign => {'needassign'},
+      CapIncidentStatus.needApproval => {'needapproval'},
+      CapIncidentStatus.pending => {'pending'},
+      CapIncidentStatus.inProcess => {'inprocess', 'inprogress'},
+      CapIncidentStatus.hold => {'hold', 'onhold'},
+      CapIncidentStatus.completed => {'completed'},
+      CapIncidentStatus.cancelled => {'cancelled', 'canceled'},
+    };
+    String normalize(String? value) =>
+        (value ?? '').toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final matches = lookup.status
+        .where(
+          (item) =>
+              item.id != null &&
+              item.id! > 0 &&
+              (codes.contains(normalize(item.code)) ||
+                  codes.contains(normalize(item.name))),
+        )
+        .toList();
+    if (matches.length != 1) return null;
+    return IncidentListFilter(status: status, statusId: matches.single.id);
+  }
+
+  static Future<void> open(
+    BuildContext context,
+    CapIncidentStatus? status,
+  ) async {
+    IncidentListFilter? filter;
+    if (status == null) {
+      filter = const IncidentListFilter();
+    } else if (services.isRegistered<IncidentLookupStore>()) {
+      final store = services<IncidentLookupStore>();
+      if (store.current == null) await store.refresh();
+      final lookup = store.current;
+      if (lookup != null) filter = resolve(status, lookup);
+    }
+    if (!context.mounted) return;
+    if (filter == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.tr(
+              'This status is unavailable in Incident Lookup. Please refresh and retry.',
+              'هذه الحالة غير متاحة في قائمة حالات البلاغات. حدّث البيانات وحاول مجددًا.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    debugPrint(
+      '[Dashboard -> IncidentList] status=${status?.name ?? "all"}, StatusId=${filter.statusId ?? -1}',
+    );
+    Navigator.pushNamed(context, AppRoutes.incidentList, arguments: filter);
+  }
+}

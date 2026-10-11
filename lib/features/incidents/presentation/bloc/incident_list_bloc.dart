@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/network/result.dart';
@@ -12,15 +13,18 @@ class IncidentListState {
     this.loading = false,
     this.incidents = const [],
     this.failure,
+    this.statusId = -1,
   });
   final DateTime from, to;
   final bool loading;
   final List<CapIncident> incidents;
   final Failure? failure;
+  final int statusId;
 }
 
 class LoadIncidentList {
-  LoadIncidentList(this.from, this.to);
+  LoadIncidentList(this.from, this.to, {this.statusId = -1});
+  final int statusId;
   final DateTime from, to;
   final done = Completer<void>();
 }
@@ -34,6 +38,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
         ),
       ) {
     on<LoadIncidentList>((event, emit) async {
+      debugPrint('[IncidentList load] StatusId=${event.statusId}');
       final request = ++_request;
       try {
         if (event.from.isAfter(event.to)) {
@@ -42,12 +47,16 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
               from: state.from,
               to: state.to,
               incidents: state.incidents,
+              statusId: state.statusId,
               failure: const ValidationFailure(),
             ),
           );
           return;
         }
-        final sameRange = event.from == state.from && event.to == state.to;
+        final sameRange =
+            event.from == state.from &&
+            event.to == state.to &&
+            event.statusId == state.statusId;
         final previous = sameRange ? state.incidents : <CapIncident>[];
         emit(
           IncidentListState(
@@ -55,11 +64,16 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
             to: event.to,
             loading: true,
             incidents: previous,
+            statusId: event.statusId,
           ),
         );
         final result = _getList == null
             ? const FailureResult<List<CapIncident>>(UnauthorizedFailure())
-            : await _getList(day: event.from, toDate: event.to);
+            : await _getList(
+                day: event.from,
+                toDate: event.to,
+                statusId: event.statusId,
+              );
         if (request != _request || emit.isDone) return;
         switch (result) {
           case Success(:final data):
@@ -68,6 +82,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
                 from: event.from,
                 to: event.to,
                 incidents: data,
+                statusId: event.statusId,
               ),
             );
           case FailureResult(:final failure):
@@ -77,6 +92,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
                 to: event.to,
                 incidents: previous,
                 failure: failure,
+                statusId: event.statusId,
               ),
             );
         }
@@ -100,8 +116,12 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
     );
   }
 
-  Future<void> load(DateTime from, DateTime to) {
-    final event = LoadIncidentList(dayOnly(from), dayOnly(to));
+  Future<void> load(DateTime from, DateTime to, {int statusId = -1}) {
+    final event = LoadIncidentList(
+      dayOnly(from),
+      dayOnly(to),
+      statusId: statusId,
+    );
     add(event);
     return event.done.future;
   }

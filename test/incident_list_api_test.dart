@@ -113,6 +113,7 @@ void main() {
         final page = (sent['data'] as Map)['Page'] as int;
         expect((sent['data'] as Map)['FromDate'], '2026-09-01');
         expect((sent['data'] as Map)['ToDate'], '2026-09-30');
+        expect((sent['data'] as Map)['StatusId'], 407);
         return {
           'resultcode': 1,
           'data': {
@@ -134,6 +135,7 @@ void main() {
       final result = await repo.getIncidentsForDay(
         day: DateTime(2026, 9, 1),
         toDate: DateTime(2026, 9, 30),
+        statusId: 407,
       );
       expect(
         (result as Success<List<CapIncident>>).data.map((i) => i.incidentId),

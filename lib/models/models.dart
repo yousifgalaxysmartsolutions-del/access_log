@@ -169,6 +169,7 @@ class CapIncident {
     required this.dateTime,
     required this.status,
     required this.currentUser,
+    this.backendStatusId,
     this.hasRealDate = true,
     this.needsApproval = false,
     this.description =
@@ -179,6 +180,7 @@ class CapIncident {
   });
 
   final int incidentId;
+  final int? backendStatusId;
   final bool hasRealDate;
   final String number;
   final String type;
@@ -320,6 +322,7 @@ class MyRequest {
 class IncidentListFilter {
   const IncidentListFilter({
     this.status,
+    this.statusId,
     this.priority,
     this.region,
     this.area,
@@ -332,6 +335,9 @@ class IncidentListFilter {
   });
 
   final CapIncidentStatus? status;
+
+  /// Exact ID from Incident Lookup; independent of the presentation enum.
+  final int? statusId;
   final Priority? priority;
   final String? region, area, site, incidentNumber, type, location;
   final DateTime? from, to;
@@ -349,6 +355,7 @@ class IncidentListFilter {
   );
 
   bool get isActive =>
+      statusId != null ||
       status != null ||
       priority != null ||
       [

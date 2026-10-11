@@ -49,6 +49,7 @@ class IncidentRepositoryImpl implements IncidentRepository {
   Future<Result<List<CapIncident>>> getIncidentsForDay({
     required DateTime day,
     DateTime? toDate,
+    int statusId = -1,
   }) async {
     // CAP expects both bounds as `yyyy-MM-dd`, so "today" means a single day
     // rather than a range that starts at midnight.
@@ -63,7 +64,12 @@ class IncidentRepositoryImpl implements IncidentRepository {
       var page = 1;
       while (true) {
         final envelope = await _context.wrap(
-          IncidentListRequestData(fromDate: date, toDate: end, page: page),
+          IncidentListRequestData(
+            fromDate: date,
+            toDate: end,
+            page: page,
+            statusId: statusId,
+          ),
           authenticationMessage: 'Sign in again to load incidents',
         );
         final result = await switch (envelope) {

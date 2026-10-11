@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../core/di/injection.dart';
 import '../../features/incidents/data/incident_lookup_store.dart';
+import '../../features/dashboard/presentation/dashboard_incident_navigation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/localization/app_strings.dart';
@@ -134,7 +135,7 @@ class _DashboardContent extends StatelessWidget {
         context.tr('Need Approval', 'تحتاج موافقة'),
         data.needApproval,
         Icons.approval_outlined,
-        null,
+        CapIncidentStatus.needApproval,
       ),
     ];
     return RefreshIndicator(
@@ -204,10 +205,9 @@ class _DashboardContent extends StatelessWidget {
                   width: width,
                   child: _MetricCard(
                     metric: metric,
-                    onTap: () => Navigator.pushNamed(
+                    onTap: () => DashboardIncidentNavigation.open(
                       context,
-                      AppRoutes.incidentList,
-                      arguments: IncidentListFilter(status: metric.status),
+                      metric.status,
                     ),
                   ),
                 ),
@@ -748,11 +748,8 @@ class _StatusOverview extends StatelessWidget {
           ...rows.map(
             (row) => InkWell(
               borderRadius: BorderRadius.circular(10),
-              onTap: () => Navigator.pushNamed(
-                context,
-                AppRoutes.incidentList,
-                arguments: IncidentListFilter(status: row.status),
-              ),
+              onTap: () =>
+                  DashboardIncidentNavigation.open(context, row.status),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 7),
                 child: Column(

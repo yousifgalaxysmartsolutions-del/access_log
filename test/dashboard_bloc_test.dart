@@ -53,6 +53,7 @@ class _FakeIncidentRepository implements IncidentRepository {
   Future<Result<List<CapIncident>>> getIncidentsForDay({
     required DateTime day,
     DateTime? toDate,
+    int statusId = -1,
   }) async {
     calls++;
     return Success(const []);

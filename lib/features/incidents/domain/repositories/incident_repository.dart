@@ -8,5 +8,6 @@ abstract interface class IncidentRepository {
   Future<Result<List<CapIncident>>> getIncidentsForDay({
     required DateTime day,
     DateTime? toDate,
+    int statusId = -1,
   });
 }

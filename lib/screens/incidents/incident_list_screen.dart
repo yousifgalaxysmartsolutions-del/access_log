@@ -45,7 +45,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
           : null,
     );
     final (from, to) = IncidentListBloc.range(filter);
-    bloc.load(from, to);
+    bloc.load(from, to, statusId: filter.statusId ?? -1);
   }
 
   @override
@@ -94,7 +94,9 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
             incident.location,
           ].any((value) => value.toLowerCase().contains(query));
       return matchesSearch &&
-          (filter.status == null || incident.status == filter.status) &&
+          (filter.statusId != null
+              ? incident.backendStatusId == filter.statusId
+              : filter.status == null || incident.status == filter.status) &&
           (filter.priority == null || incident.priority == filter.priority) &&
           contains(incident.region, filter.region) &&
           contains(incident.area, filter.area) &&
@@ -136,8 +138,10 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       final (from, to) = IncidentListBloc.range(updated);
       if (from.isAfter(to)) return;
       setState(() => filter = updated);
-      if (from != bloc.state.from || to != bloc.state.to) {
-        await bloc.load(from, to);
+      if (from != bloc.state.from ||
+          to != bloc.state.to ||
+          (updated.statusId ?? -1) != bloc.state.statusId) {
+        await bloc.load(from, to, statusId: updated.statusId ?? -1);
       }
     }
   }
@@ -183,7 +187,8 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       ),
       body: RefreshIndicator(
         color: AppColors.orange,
-        onRefresh: () => bloc.load(state.from, state.to),
+        onRefresh: () =>
+            bloc.load(state.from, state.to, statusId: filter.statusId ?? -1),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
@@ -286,8 +291,10 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
                       alignment: AlignmentDirectional.centerStart,
                       child: InputChip(
                         label: Text(_statusLabel(context, filter.status!)),
-                        onDeleted: () =>
-                            setState(() => filter = filter.withoutStatus()),
+                        onDeleted: () {
+                          setState(() => filter = filter.withoutStatus());
+                          unawaited(bloc.load(state.from, state.to));
+                        },
                       ),
                     ),
                   ],
@@ -312,7 +319,11 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
                             ),
                     ),
                     TextButton.icon(
-                      onPressed: () => bloc.load(state.from, state.to),
+                      onPressed: () => bloc.load(
+                        state.from,
+                        state.to,
+                        statusId: filter.statusId ?? -1,
+                      ),
                       icon: const Icon(Icons.refresh),
                       label: Text(context.tr('Retry', 'إعادة المحاولة')),
                     ),
@@ -607,6 +618,9 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                       context,
                       IncidentListFilter(
                         status: status,
+                        statusId: status == widget.initial.status
+                            ? widget.initial.statusId
+                            : null,
                         priority: priority,
                         region: region.text,
                         area: area.text,
