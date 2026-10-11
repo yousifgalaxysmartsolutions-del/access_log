@@ -96,8 +96,9 @@ void main() {
           navigatorKey: navigator,
           home: const CapDashboardScreen(),
           onGenerateRoute: (settings) {
-            if (settings.arguments is IncidentListFilter)
+            if (settings.arguments is IncidentListFilter) {
               filters.add(settings.arguments as IncidentListFilter);
+            }
             return AppRoutes.onGenerateRoute(settings);
           },
         ),

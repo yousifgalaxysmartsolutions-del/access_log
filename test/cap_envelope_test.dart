@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'package:flutter/widgets.dart';
+import 'package:access_log_plus/core/network/cap/cap_locale_holder.dart';
+import 'package:access_log_plus/features/authentication/data/models/auth_models.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,6 +10,12 @@ import 'package:access_log_plus/core/network/cap/cap_request.dart';
 import 'package:access_log_plus/core/network/cap/general_response.dart';
 
 void main() {
+  late Locale originalLocale;
+  setUp(() {
+    originalLocale = CapLocaleHolder.instance.locale;
+    CapLocaleHolder.instance.update(const Locale('ar'));
+  });
+  tearDown(() => CapLocaleHolder.instance.update(originalLocale));
   test('CapRequest.toJson uses exact CAP casing', () {
     const request = CapRequest<String>(
       userId: 4098,
@@ -24,10 +33,57 @@ void main() {
       'osversion': '15.1',
       'AppVersion': '1',
       'devicetype': 'iOS',
+      'lang': 'ar',
       'data': 'payload',
     });
   });
 
+  test(
+    'CAP envelope language is dynamic for normal, null-data and metadata-only requests',
+    () {
+      const request = CapRequest<Map<String, dynamic>>(
+        userId: 1,
+        deviceIdentifier: 'D',
+        deviceToken: 't',
+        osVersion: '15.1',
+        appVersion: '1',
+        deviceType: 'iOS',
+        data: {'RequestTypeId': 2},
+      );
+      const nullRequest = CapRequest<Null>(
+        userId: 1,
+        deviceIdentifier: 'D',
+        deviceToken: 't',
+        osVersion: '15.1',
+        appVersion: '1',
+        deviceType: 'iOS',
+        data: null,
+      );
+      final metadata = CapRequest.metadataOnly(
+        userId: 1,
+        deviceIdentifier: 'D',
+        deviceToken: 't',
+        osVersion: '15.1',
+        appVersion: '1',
+        deviceType: 'iOS',
+      );
+      const login = LoginRequest('engineer', 'test-password');
+      final profile = UserProfileRequest(userId: 1);
+      for (final language in ['ar', 'en', 'ar']) {
+        CapLocaleHolder.instance.update(Locale(language));
+        expect(request.lang, language);
+        expect(jsonDecode(jsonEncode(request))['lang'], language);
+        expect(request.toJson()['data'], {'RequestTypeId': 2});
+        expect(nullRequest.toJson()['lang'], language);
+        expect(nullRequest.toJson().containsKey('data'), true);
+        expect(nullRequest.toJson()['data'], isNull);
+        expect(metadata.toJson()['lang'], language);
+        expect(metadata.toJson().containsKey('data'), false);
+        expect(login.toJson()['lang'], language);
+        expect(profile.toJson()['lang'], language);
+      }
+    },
+  );
   test('CapRequest encodes map data', () {
     const request = CapRequest<Map<String, dynamic>>(
       userId: 1,

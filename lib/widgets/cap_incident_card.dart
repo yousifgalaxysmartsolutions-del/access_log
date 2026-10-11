@@ -80,14 +80,16 @@ class CapIncidentCard extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                context.mockText(incident.title),
+               // context.mockText(incident.title),
+                incident.title,
                 style: AppTypography.section,
               ),
               const SizedBox(height: 9),
               _CardLine(
                 icon: Icons.cell_tower,
                 text:
-                    '${context.mockText(incident.siteName)} • ${incident.siteCode}',
+                    "${incident.area} \n ${incident.region}",
+                   // '${context.mockText(incident.siteName)} • ${incident.siteCode}',
               ),
               const SizedBox(height: 7),
               _CardLine(

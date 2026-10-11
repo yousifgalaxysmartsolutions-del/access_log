@@ -1,3 +1,5 @@
+import 'cap_locale_holder.dart';
+
 /// A CAP request body.
 ///
 /// Implemented by the endpoint specific `data` payloads so [CapRequest] can
@@ -19,6 +21,7 @@ abstract interface class CapPayload {
 ///   "osversion": "15.1",
 ///   "AppVersion": "1.0.0",
 ///   "devicetype": "iOS",
+///   "lang": "ar",
 ///   "data": { }
 /// }
 /// ```
@@ -81,6 +84,9 @@ class CapRequest<T> {
   final String deviceType;
   final T data;
 
+  /// Resolve from the selected app language when serializing the envelope.
+  String get lang => CapLocaleHolder.instance.languageCode;
+
   Map<String, dynamic> toJson() => {
     'userid': userId,
     'ipaddress': deviceIdentifier,
@@ -88,6 +94,7 @@ class CapRequest<T> {
     'osversion': osVersion,
     'AppVersion': appVersion,
     'devicetype': deviceType,
+    'lang': lang,
     if (_includeData) 'data': _encode(data),
   };
 }

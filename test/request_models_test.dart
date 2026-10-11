@@ -85,6 +85,7 @@ const metadataJson = {
   'osversion': '15.1',
   'AppVersion': '1',
   'devicetype': 'iOS',
+  'lang': 'ar',
 };
 CapRequest<T> envelope<T>(T data) => CapRequest<T>(
   userId: 4089,

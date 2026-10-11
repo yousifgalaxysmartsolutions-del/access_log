@@ -44,10 +44,12 @@ class AccessLogAppState extends State<AccessLogApp> {
   Locale _locale = const Locale('ar');
   ThemeMode _themeMode = ThemeMode.light;
   bool get isDark => _themeMode == ThemeMode.dark;
-  void toggleLocale() => setState(
-    () => _locale = Locale(_locale.languageCode == 'en' ? 'ar' : 'en'),
-  );
-  void setLocale(Locale locale) => setState(() => _locale = locale);
+  void toggleLocale() =>
+      setLocale(Locale(_locale.languageCode == 'en' ? 'ar' : 'en'));
+  void setLocale(Locale locale) => setState(() {
+    _locale = locale;
+    _syncLocale();
+  });
   void toggleTheme() =>
       setState(() => _themeMode = isDark ? ThemeMode.light : ThemeMode.dark);
 

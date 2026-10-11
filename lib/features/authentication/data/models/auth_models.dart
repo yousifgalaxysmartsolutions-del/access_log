@@ -1,5 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 import '../../../../core/network/cap/cap_request.dart';
+import '../../../../core/network/cap/cap_locale_holder.dart';
 part 'auth_models.g.dart';
 
 @JsonSerializable(createToJson: false)
@@ -141,7 +142,7 @@ class UserProfileRequest {
       'CAP_DEVICE_TYPE',
       defaultValue: 'iOS',
     ),
-    'lang': const String.fromEnvironment('CAP_LANGUAGE', defaultValue: 'en'),
+    'lang': CapLocaleHolder.instance.languageCode,
     'data': null,
   };
 }
@@ -171,7 +172,7 @@ class LoginRequest {
       'CAP_DEVICE_TYPE',
       defaultValue: 'iOS',
     ),
-    'lang': const String.fromEnvironment('CAP_LANGUAGE', defaultValue: 'en'),
+    'lang': CapLocaleHolder.instance.languageCode,
     'data': {'UserName': username, 'Password': password},
   };
 }

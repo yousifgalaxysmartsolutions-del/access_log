@@ -16,6 +16,7 @@ class CapLocaleHolder {
   Locale get locale => _locale;
 
   bool get isArabic => _locale.languageCode == 'ar';
+  String get languageCode => isArabic ? 'ar' : 'en';
 
   void update(Locale locale) => _locale = locale;
 }
