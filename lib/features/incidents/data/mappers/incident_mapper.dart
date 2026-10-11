@@ -22,38 +22,42 @@ abstract final class IncidentMapper {
     return CapIncident(
       incidentId: item.incidentId,
       backendStatusId: item.statusId,
-      number: _valueOr(item.incidentNo, 'CAP-${item.incidentId}'),
-      type: item.incidentType.isEmpty ? 'CAP Incident' : item.incidentType,
+      backendStatusName: item.statusName,
+      backendPriorityName: item.priorityName,
+      number: item.incidentNo,
+      type: item.incidentType,
       siteName: item.locationName,
-      siteCode: item.locationName,
+      siteCode: item.locationCode,
       region: item.regionName,
       area: item.areaName,
       location: item.locationName,
       title: item.description,
       priority: mapPriority(id: item.priorityId, name: item.priorityName),
-      // Needs Verification: `GetIncidentList` does not send a date, so
-      // `CapIncident.dateTime` (non-nullable across the app) falls back to the
-      // day the list was requested for. Making it nullable would ripple through
-      // reporting, the incident list, the AI context builder and the details
-      // screen, so the single fallback is documented here instead.
+      // Keep the non-nullable internal date; never display it when absent in CAP.
       dateTime: item.occurredAt ?? requestedOn,
       hasRealDate: item.occurredAt != null,
       status: status,
-      currentUser: item.assignedTeam.isEmpty ? 'Unassigned' : item.assignedTeam,
+      currentUser: item.assignedTeam,
       description: item.description,
+      productName: '',
+      nativeMoName: '',
+      notificationType: '',
       needsApproval: status == CapIncidentStatus.needApproval,
     );
   }
 
   /// Maps a CAP status to the app status.
   ///
-  /// Only `id: 3` has been observed on the wire (as `Pending`). The name is used
-  /// as the primary key because CAP returns it for every row, while ids are
-  /// matched only where they are actually confirmed. Needs Verification for the
-  /// remaining ids.
+  /// Confirmed CAP ids. Display text is preserved separately, not reconstructed.
   static CapIncidentStatus mapStatus({required int id, required String name}) {
     return switch (id) {
+      1 => CapIncidentStatus.needAssign,
+      2 => CapIncidentStatus.needApproval,
       3 => CapIncidentStatus.pending,
+      4 => CapIncidentStatus.inProcess,
+      5 => CapIncidentStatus.completed,
+      6 => CapIncidentStatus.cancelled,
+      7 => CapIncidentStatus.hold,
       final _ => _statusNames[_key(name)] ?? CapIncidentStatus.pending,
     };
   }
@@ -92,7 +96,4 @@ abstract final class IncidentMapper {
     'critical': Priority.critical,
     'urgent': Priority.critical,
   };
-
-  static String _valueOr(String value, String fallback) =>
-      value.isEmpty ? fallback : value;
 }

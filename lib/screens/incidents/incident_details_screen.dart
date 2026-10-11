@@ -11,7 +11,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/error/failure.dart';
 import '../../core/localization/app_strings.dart';
-import '../../core/localization/mock_content_localization.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../features/incidents/data/models/incident_details_models.dart';
 import '../../features/incidents/presentation/bloc/incident_details_bloc.dart';
@@ -301,10 +300,12 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
         final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.2;
         return Column(
           children: [
-            _IncidentHeader(
-              incident: widget.incident,
-              status: status,
-              compact: constraints.maxHeight < 700 || largeText,
+            BlocBuilder<IncidentDetailsBloc, IncidentDetailsState>(
+              builder: (context, state) => _IncidentHeader(
+                incident: widget.incident,
+                details: state.generalData,
+                compact: constraints.maxHeight < 700 || largeText,
+              ),
             ),
             if (status == CapIncidentStatus.inProcess)
               ActiveInterventionIndicator(
@@ -321,24 +322,24 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
                 !largeText)
               ActiveInterventionBanner(
                 site:
-                    '${context.mockText(widget.incident.siteName)} • ${widget.incident.siteCode}',
+                    '${widget.incident.siteName} • ${widget.incident.siteCode}',
                 onLocationTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => LocationSimulationScreen(
-                      site: context.mockText(widget.incident.siteName),
+                      site: widget.incident.siteName,
                     ),
                   ),
                 ),
                 onWarningTap: () => showGeofenceWarning(
                   context,
-                  siteName: context.mockText(widget.incident.siteName),
+                  siteName: widget.incident.siteName,
                   onViewIncident: () {},
                 ),
                 onPhotoTap: () => showPhotoReminder(
                   context,
                   incidentNumber: widget.incident.number,
-                  site: context.mockText(widget.incident.siteName),
+                  site: widget.incident.siteName,
                   onCapture: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -455,11 +456,11 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
 class _IncidentHeader extends StatelessWidget {
   const _IncidentHeader({
     required this.incident,
-    required this.status,
+    this.details,
     this.compact = false,
   });
   final CapIncident incident;
-  final CapIncidentStatus status;
+  final IncidentDetailsData? details;
   final bool compact;
   @override
   Widget build(BuildContext context) => Container(
@@ -478,19 +479,22 @@ class _IncidentHeader extends StatelessWidget {
               ),
             ),
             _HeaderChip(
-              label: _statusLabel(context, status),
-              color: capStatusColor(status),
+              label: details?.status?.name ?? incident.displayStatus,
+              color: capBackendStatusColor(
+                details?.status?.id ?? incident.backendStatusId,
+                incident.status,
+              ),
             ),
             const SizedBox(width: 7),
             _HeaderChip(
-              label: incident.priority.name.toUpperCase(),
+              label: details?.priority?.name ?? incident.displayPriority,
               color: priorityColor(incident.priority),
             ),
           ],
         ),
         SizedBox(height: compact ? 8 : 15),
         Text(
-          context.mockText(incident.title),
+          details?.title ?? incident.title,
           style: AppTypography.title.copyWith(color: Colors.white),
           maxLines: compact ? 1 : 2,
           overflow: TextOverflow.ellipsis,
@@ -502,7 +506,7 @@ class _IncidentHeader extends StatelessWidget {
             const SizedBox(width: 7),
             Expanded(
               child: Text(
-                '${context.mockText(incident.siteName)} • ${incident.siteCode}',
+                '${details?.location?.name ?? incident.siteName} • ${details?.location?.id ?? incident.siteCode}',
                 style: AppTypography.meta.copyWith(color: Colors.white70),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1835,20 +1839,6 @@ String formatCapApiDate(String? value) {
       '${hour.toString().padLeft(2, '0')}:'
       '${parsed.minute.toString().padLeft(2, '0')} $suffix';
 }
-
-String _statusLabel(BuildContext context, CapIncidentStatus status) =>
-    switch (status) {
-      CapIncidentStatus.needAssign => context.tr('Need Assign', 'تحتاج إسناد'),
-      CapIncidentStatus.needApproval => context.tr(
-        'Need Approval',
-        'بانتظار الموافقة',
-      ),
-      CapIncidentStatus.pending => context.tr('Pending', 'بانتظار القبول'),
-      CapIncidentStatus.inProcess => context.tr('In Process', 'قيد التنفيذ'),
-      CapIncidentStatus.hold => context.tr('On Hold', 'متوقف مؤقتًا'),
-      CapIncidentStatus.completed => context.tr('Completed', 'مكتمل'),
-      CapIncidentStatus.cancelled => context.tr('Cancelled', 'ملغى'),
-    };
 
 String _requestStatus(BuildContext context, String status) => switch (status) {
   'Approved' => context.tr('Approved', 'موافق عليه'),

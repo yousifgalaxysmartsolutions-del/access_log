@@ -688,19 +688,17 @@ class _DateField extends StatelessWidget {
   );
 }
 
-String _statusLabel(BuildContext context, CapIncidentStatus status) =>
-    switch (status) {
-      CapIncidentStatus.needAssign => context.tr('Need Assign', 'تحتاج إسناد'),
-      CapIncidentStatus.needApproval => context.tr(
-        'Need Approval',
-        'بانتظار الموافقة',
-      ),
-      CapIncidentStatus.pending => context.tr('Pending', 'بانتظار القبول'),
-      CapIncidentStatus.inProcess => context.tr('In Process', 'قيد التنفيذ'),
-      CapIncidentStatus.hold => context.tr('On Hold', 'متوقف مؤقتًا'),
-      CapIncidentStatus.completed => context.tr('Completed', 'مكتمل'),
-      CapIncidentStatus.cancelled => context.tr('Cancelled', 'ملغى'),
-    };
+String _statusLabel(BuildContext context, CapIncidentStatus status) {
+  final name = status == CapIncidentStatus.hold ? 'Hold' : status.label;
+  if (services.isRegistered<IncidentLookupStore>()) {
+    for (final item in services<IncidentLookupStore>().current?.status ?? []) {
+      if (item.name?.toLowerCase() == name.toLowerCase()) {
+        return item.name!;
+      }
+    }
+  }
+  return name;
+}
 
 String _priorityLabel(BuildContext context, Priority priority) =>
     switch (priority) {

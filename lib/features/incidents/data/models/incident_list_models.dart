@@ -137,12 +137,14 @@ class IncidentListItem {
     required this.priorityName,
     required this.priorityId,
     this.occurredAt,
+    this.locationCode = '',
   });
 
   final int incidentId;
   final String incidentNo;
   final String description;
   final String locationName;
+  final String locationCode;
   final String areaName;
   final String regionName;
   final String incidentType;
@@ -152,11 +154,7 @@ class IncidentListItem {
   final String priorityName;
   final int priorityId;
 
-  /// Incident date, when CAP returns one.
-  ///
-  /// Needs Verification: the observed `GetIncidentList` payload carries no date
-  /// field at all. Parsed defensively from the few plausible spellings rather
-  /// than inventing one; see `IncidentMapper` for the no-date fallback.
+  /// Creation date returned by CAP, without changing its timezone.
   final DateTime? occurredAt;
 
   factory IncidentListItem.fromJson(
@@ -166,12 +164,13 @@ class IncidentListItem {
     incidentNo: _firstText(json, ['incidentNo', 'incidentNumber']),
     // The live payload titles a row with `incidentTitle` and carries no
     // `description`, so the title is the only text the tile can show.
-    description: _firstText(json, ['description', 'incidentTitle', 'title']),
+    description: _firstText(json, ['incidentTitle', 'title', 'description']),
     locationName: _firstText(json, ['locationName', 'location', 'siteName']),
+    locationCode: _firstText(json, ['locationCode', 'locationId']),
     areaName: _firstText(json, ['areaName', 'area']),
     regionName: _firstText(json, ['regionName', 'region']),
     incidentType: _firstText(json, ['incidentType', 'incidentTypeName']),
-    assignedTeam: _firstText(json, ['assignedTeam', 'teamName']),
+    assignedTeam: _firstText(json, ['currentUser', 'assignedTeam', 'teamName']),
     statusName: _firstText(capMap(json['status']), ['name', 'statusName']),
     statusId: capCount(capMap(json['status'])['id']),
     priorityName: _firstText(capMap(json['priority']), [
@@ -183,9 +182,9 @@ class IncidentListItem {
   );
 
   static const _dateKeys = [
+    'createdDate',
     'incidentDate',
     'incident_date',
-    'createdDate',
     'created_date',
     'date',
   ];
@@ -194,7 +193,12 @@ class IncidentListItem {
   /// one spelling still renders instead of showing a blank row.
   static String _firstText(Map<String, dynamic> json, List<String> keys) {
     for (final key in keys) {
-      final value = capText(json[key]);
+      final raw = json[key];
+      final value = raw is String
+          ? raw
+          : raw is Map && raw['name'] is String
+          ? raw['name'] as String
+          : '';
       if (value.isNotEmpty) return value;
     }
     return '';

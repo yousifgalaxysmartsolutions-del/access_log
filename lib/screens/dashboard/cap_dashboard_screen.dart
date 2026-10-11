@@ -6,7 +6,7 @@ import '../../features/dashboard/presentation/dashboard_incident_navigation.dart
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../core/localization/app_strings.dart';
-import '../../core/localization/mock_content_localization.dart';
+import '../../widgets/cap_incident_card.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../features/dashboard/presentation/bloc/dashboard_bloc.dart';
@@ -379,8 +379,7 @@ class _DashboardContent extends StatelessWidget {
 /// Joins the non-empty site parts, or returns null when CAP sent no location.
 String? _siteLabel(BuildContext context, CapIncident incident) {
   final parts = <String>{
-    if (incident.siteName.trim().isNotEmpty)
-      context.mockText(incident.siteName),
+    if (incident.siteName.trim().isNotEmpty) incident.siteName,
     if (incident.siteCode.trim().isNotEmpty &&
         incident.siteCode.trim() != incident.siteName.trim())
       incident.siteCode,
@@ -860,7 +859,7 @@ class CompactIncidentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = _statusColor(incident.status);
+    final statusColor = incidentStatusColor(incident);
 
     return Material(
       color: Colors.white,
@@ -895,7 +894,9 @@ class CompactIncidentTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       /// Number + Status
-                      Row(
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
                         children: [
                           Text(
                             incident.number,
@@ -905,8 +906,6 @@ class CompactIncidentTile extends StatelessWidget {
                               color: Color(0xFF777777),
                             ),
                           ),
-
-                          const Spacer(),
 
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -918,7 +917,7 @@ class CompactIncidentTile extends StatelessWidget {
                               borderRadius: BorderRadius.circular(100),
                             ),
                             child: Text(
-                              _localizedStatus(context, incident.status),
+                              incident.displayStatus,
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
@@ -933,7 +932,7 @@ class CompactIncidentTile extends StatelessWidget {
 
                       /// Title
                       Text(
-                        context.mockText(incident.title),
+                        incident.title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -974,25 +973,23 @@ class CompactIncidentTile extends StatelessWidget {
                       const SizedBox(height: 12),
 
                       /// Footer
-                      Row(
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 8,
                         children: [
                           _InfoItem(
                             icon: Icons.flag_rounded,
-                            label: _localizedPriority(
-                              context,
-                              incident.priority,
-                            ),
+                            label: incident.displayPriority,
                             color: _priorityColor(incident.priority),
                           ),
 
-                          const SizedBox(width: 14),
-
-                          _InfoItem(
-                            icon: Icons.calendar_today_rounded,
-                            label: _formatDate(incident.dateTime),
-                          ),
-
-                          const Spacer(),
+                          if (incident.hasRealDate)
+                            _InfoItem(
+                              icon: Icons.calendar_today_rounded,
+                              label: formatIncidentCreatedDate(
+                                incident.dateTime,
+                              ),
+                            ),
 
                           Container(
                             width: 30,
@@ -1039,34 +1036,20 @@ class _InfoItem extends StatelessWidget {
       children: [
         Icon(icon, size: 15, color: itemColor),
         const SizedBox(width: 5),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: color != null ? FontWeight.w700 : FontWeight.w500,
-            color: itemColor,
+        Flexible(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: color != null ? FontWeight.w700 : FontWeight.w500,
+              color: itemColor,
+            ),
           ),
         ),
       ],
     );
   }
 }
-
-Color _statusColor(CapIncidentStatus status) => switch (status) {
-  CapIncidentStatus.needAssign => const Color(0xFFF97316),
-
-  CapIncidentStatus.needApproval => const Color(0xFF7C3AED),
-
-  CapIncidentStatus.pending => const Color(0xFFF59E0B),
-
-  CapIncidentStatus.inProcess => const Color(0xFF2563EB),
-
-  CapIncidentStatus.hold => const Color(0xFF8B5CF6),
-
-  CapIncidentStatus.completed => const Color(0xFF16A34A),
-
-  CapIncidentStatus.cancelled => const Color(0xFFDC2626),
-};
 
 Color _priorityColor(Priority priority) => switch (priority) {
   Priority.critical => const Color(0xFFDC2626),
@@ -1077,39 +1060,3 @@ Color _priorityColor(Priority priority) => switch (priority) {
 
   Priority.low => const Color(0xFF16A34A),
 };
-
-String _localizedStatus(BuildContext context, CapIncidentStatus status) =>
-    switch (status) {
-      CapIncidentStatus.needAssign => context.tr('Need Assign', 'تحتاج إسناد'),
-
-      CapIncidentStatus.needApproval => context.tr(
-        'Need Approval',
-        'بانتظار الموافقة',
-      ),
-
-      CapIncidentStatus.pending => context.tr('Pending', 'بانتظار القبول'),
-
-      CapIncidentStatus.inProcess => context.tr('In Process', 'قيد التنفيذ'),
-
-      CapIncidentStatus.hold => context.tr('On Hold', 'متوقف مؤقتًا'),
-
-      CapIncidentStatus.completed => context.tr('Completed', 'مكتمل'),
-
-      CapIncidentStatus.cancelled => context.tr('Cancelled', 'ملغى'),
-    };
-
-String _localizedPriority(BuildContext context, Priority priority) =>
-    switch (priority) {
-      Priority.critical => context.tr('Critical', 'حرجة'),
-
-      Priority.high => context.tr('High', 'عالية'),
-
-      Priority.medium => context.tr('Medium', 'متوسطة'),
-
-      Priority.low => context.tr('Low', 'منخفضة'),
-    };
-
-String _formatDate(DateTime date) {
-  return '${date.day.toString().padLeft(2, '0')}/'
-      '${date.month.toString().padLeft(2, '0')}';
-}

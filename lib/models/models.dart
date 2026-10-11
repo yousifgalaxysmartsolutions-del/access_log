@@ -170,6 +170,8 @@ class CapIncident {
     required this.status,
     required this.currentUser,
     this.backendStatusId,
+    this.backendStatusName,
+    this.backendPriorityName,
     this.hasRealDate = true,
     this.needsApproval = false,
     this.description =
@@ -181,6 +183,10 @@ class CapIncident {
 
   final int incidentId;
   final int? backendStatusId;
+  final String? backendStatusName;
+  final String? backendPriorityName;
+  String get displayStatus => backendStatusName ?? status.label;
+  String get displayPriority => backendPriorityName ?? priority.name;
   final bool hasRealDate;
   final String number;
   final String type;

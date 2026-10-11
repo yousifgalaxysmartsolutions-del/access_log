@@ -226,8 +226,8 @@ void main() {
     final incidents = (result as Success<List<CapIncident>>).data;
     expect(incidents.length, 1);
     expect(incidents.first.title, 'Test Incident - D10739');
-    // No incidentNo on the wire, so the mapper falls back to the id.
-    expect(incidents.first.number, 'CAP-26');
+    // Missing API text must not be replaced with a fabricated incident number.
+    expect(incidents.first.number, '');
   });
 
   test('reads lowercase totalCount, page and pageSize', () {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../core/localization/app_strings.dart';
-import '../core/localization/mock_content_localization.dart';
 import '../core/theme/app_tokens.dart';
 import '../models/models.dart';
 
@@ -13,6 +12,22 @@ Color capStatusColor(CapIncidentStatus status) => switch (status) {
   CapIncidentStatus.completed => AppColors.success,
   CapIncidentStatus.cancelled => AppColors.error,
 };
+
+Color incidentStatusColor(CapIncident incident) =>
+    capBackendStatusColor(incident.backendStatusId, incident.status);
+
+Color capBackendStatusColor(int? id, CapIncidentStatus fallback) =>
+    switch (id) {
+      1 => AppColors.orange,
+      2 => AppColors.purple,
+      3 => AppColors.warning,
+      4 => AppColors.info,
+      5 => AppColors.success,
+      6 || 8 => AppColors.error,
+      7 => AppColors.purple,
+      null => capStatusColor(fallback),
+      _ => AppColors.muted,
+    };
 
 Color priorityColor(Priority priority) => switch (priority) {
   Priority.critical => AppColors.error,
@@ -28,7 +43,7 @@ class CapIncidentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = capStatusColor(incident.status);
+    final statusColor = incidentStatusColor(incident);
     return Card(
       child: InkWell(
         onTap: onTap,
@@ -61,13 +76,15 @@ class CapIncidentCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          _statusIcon(incident.status),
+                          incident.backendStatusId == 8
+                              ? Icons.cancel_outlined
+                              : _statusIcon(incident.status),
                           size: 14,
                           color: statusColor,
                         ),
                         const SizedBox(width: 5),
                         Text(
-                          _localizedStatus(context, incident.status),
+                          incident.displayStatus,
                           style: AppTypography.meta.copyWith(
                             color: statusColor,
                             fontWeight: FontWeight.w700,
@@ -79,23 +96,19 @@ class CapIncidentCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              Text(
-               // context.mockText(incident.title),
-                incident.title,
-                style: AppTypography.section,
-              ),
+              Text(incident.title, style: AppTypography.section),
               const SizedBox(height: 9),
               _CardLine(
                 icon: Icons.cell_tower,
-                text:
-                    "${incident.area} \n ${incident.region}",
-                   // '${context.mockText(incident.siteName)} • ${incident.siteCode}',
+                text: [
+                  incident.siteName,
+                  incident.siteCode,
+                ].where((value) => value.isNotEmpty).join(' • '),
               ),
               const SizedBox(height: 7),
               _CardLine(
                 icon: Icons.map_outlined,
-                text:
-                    '${context.mockText(incident.region)} • ${context.mockText(incident.area)}',
+                text: '${incident.region} • ${incident.area}',
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 13),
@@ -105,19 +118,16 @@ class CapIncidentCard extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  _Pill(
-                    icon: Icons.category_outlined,
-                    label: context.mockText(incident.type),
-                  ),
+                  _Pill(icon: Icons.category_outlined, label: incident.type),
                   _Pill(
                     icon: Icons.flag_outlined,
-                    label: _localizedPriority(context, incident.priority),
+                    label: incident.displayPriority,
                     color: priorityColor(incident.priority),
                   ),
                   _Pill(
                     icon: Icons.schedule,
                     label: incident.hasRealDate
-                        ? _formatDate(incident.dateTime)
+                        ? formatIncidentCreatedDate(incident.dateTime)
                         : context.tr('Date unavailable', 'التاريخ غير متاح'),
                   ),
                 ],
@@ -137,7 +147,7 @@ class CapIncidentCard extends StatelessWidget {
                   const SizedBox(width: 7),
                   Expanded(
                     child: Text(
-                      context.mockText(incident.currentUser),
+                      incident.currentUser,
                       style: AppTypography.meta.copyWith(
                         color: AppColors.muted,
                       ),
@@ -160,28 +170,6 @@ class CapIncidentCard extends StatelessWidget {
   }
 }
 
-String _localizedStatus(BuildContext context, CapIncidentStatus status) =>
-    switch (status) {
-      CapIncidentStatus.needAssign => context.tr('Need Assign', 'تحتاج إسناد'),
-      CapIncidentStatus.needApproval => context.tr(
-        'Need Approval',
-        'بانتظار الموافقة',
-      ),
-      CapIncidentStatus.pending => context.tr('Pending', 'بانتظار القبول'),
-      CapIncidentStatus.inProcess => context.tr('In Process', 'قيد التنفيذ'),
-      CapIncidentStatus.hold => context.tr('On Hold', 'متوقف مؤقتًا'),
-      CapIncidentStatus.completed => context.tr('Completed', 'مكتمل'),
-      CapIncidentStatus.cancelled => context.tr('Cancelled', 'ملغى'),
-    };
-
-String _localizedPriority(BuildContext context, Priority priority) =>
-    switch (priority) {
-      Priority.critical => context.tr('Critical', 'حرجة'),
-      Priority.high => context.tr('High', 'عالية'),
-      Priority.medium => context.tr('Medium', 'متوسطة'),
-      Priority.low => context.tr('Low', 'منخفضة'),
-    };
-
 IconData _statusIcon(CapIncidentStatus status) => switch (status) {
   CapIncidentStatus.needAssign => Icons.person_add_alt,
   CapIncidentStatus.needApproval => Icons.approval_outlined,
@@ -192,10 +180,8 @@ IconData _statusIcon(CapIncidentStatus status) => switch (status) {
   CapIncidentStatus.cancelled => Icons.cancel_outlined,
 };
 
-String _formatDate(DateTime date) {
-  final hour = date.hour > 12 ? date.hour - 12 : date.hour;
-  final period = date.hour >= 12 ? 'PM' : 'AM';
-  return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')} • $hour:${date.minute.toString().padLeft(2, '0')} $period';
+String formatIncidentCreatedDate(DateTime date) {
+  return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} • ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
 }
 
 class _CardLine extends StatelessWidget {
@@ -230,9 +216,11 @@ class _Pill extends StatelessWidget {
     children: [
       Icon(icon, size: 15, color: color ?? AppColors.muted),
       const SizedBox(width: 5),
-      Text(
-        label,
-        style: AppTypography.meta.copyWith(color: color ?? AppColors.muted),
+      Flexible(
+        child: Text(
+          label,
+          style: AppTypography.meta.copyWith(color: color ?? AppColors.muted),
+        ),
       ),
     ],
   );
