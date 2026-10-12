@@ -9,6 +9,10 @@ import 'package:access_log_plus/features/requests/domain/usecases/approve_reques
 import 'package:access_log_plus/features/requests/domain/usecases/reject_request_use_case.dart';
 
 class _Repository implements RequestRepository {
+  @override
+  Future<Result<RequestDetailsData>> getRequestDetails({
+    required int requestId,
+  }) async => Success(RequestDetailsData(id: requestId));
   final calls = <String>[];
   Map<String, Object?> parameters = {};
   Result<RequestLookupData> lookup = const Success(RequestLookupData());

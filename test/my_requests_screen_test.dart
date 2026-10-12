@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:access_log_plus/features/requests/presentation/bloc/request_details_cubit.dart';
+import 'package:access_log_plus/screens/requests/api_request_details_screen.dart';
+import 'request_details_test.dart' show RequestDetailsTestCubit;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:access_log_plus/core/di/injection.dart';
@@ -251,7 +254,7 @@ void main() {
     );
   });
   testWidgets(
-    'initial events once, true API card, no automatic writes or fake navigation',
+    'initial events once, API card opens real details without automatic writes',
     (tester) async {
       await open(tester);
       await tester.pump();
@@ -266,9 +269,12 @@ void main() {
       expect(find.text('Approve'), findsOneWidget);
       expect(find.text('Reject'), findsOneWidget);
       expect(find.byIcon(Icons.science_outlined), findsNothing);
+      services.registerFactory<RequestDetailsCubit>(
+        () => RequestDetailsTestCubit(),
+      );
       await tester.tap(find.text('Request #3'));
-      await tester.pump();
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.byType(ApiRequestDetailsScreen), findsOneWidget);
       expect(find.byType(RequestDetailsScreen), findsNothing);
       await tester.pumpWidget(const SizedBox());
       expect(bloc.isClosed, true);

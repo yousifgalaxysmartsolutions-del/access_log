@@ -1,9 +1,111 @@
 import 'package:json_annotation/json_annotation.dart';
 import '../../../../core/network/cap/cap_request.dart';
 import '../../../incidents/data/models/incident_details_models.dart'
-    show IdNameDto;
+    show IdNameDto, IncidentDetailsData;
 
 part 'request_models.g.dart';
+
+@JsonSerializable()
+class RequestDetailsInput implements CapPayload {
+  const RequestDetailsInput({required this.requestId});
+  @JsonKey(name: 'RequestId')
+  final int requestId;
+  factory RequestDetailsInput.fromJson(Map<String, dynamic> json) =>
+      _$RequestDetailsInputFromJson(json);
+  @override
+  Map<String, dynamic> toJson() => _$RequestDetailsInputToJson(this);
+}
+
+@JsonSerializable(explicitToJson: true)
+class RequestDetailsData {
+  const RequestDetailsData({
+    this.id,
+    this.incident,
+    this.requestType,
+    this.requestStatus,
+    this.remark,
+    this.noOfMinute,
+    this.questionFormId,
+    this.formName,
+    this.formDescription,
+    this.createdDate,
+    this.createdBy,
+    this.lastModifiedBy,
+    this.lastModifiedDate,
+    this.formAnswers = const [],
+    this.timeline = const [],
+  });
+  final int? id;
+  final IncidentDetailsData? incident;
+  final IdNameDto? requestType, requestStatus, createdBy, lastModifiedBy;
+  final String? remark,
+      questionFormId,
+      formName,
+      formDescription,
+      createdDate,
+      lastModifiedDate;
+  @JsonKey(name: 'NoOfMinute')
+  final num? noOfMinute;
+  final List<RequestFormAnswerDto> formAnswers;
+  final List<RequestTimelineEventDto> timeline;
+  factory RequestDetailsData.fromJson(Map<String, dynamic> json) =>
+      _$RequestDetailsDataFromJson(json);
+  Map<String, dynamic> toJson() => _$RequestDetailsDataToJson(this);
+}
+
+@JsonSerializable(explicitToJson: true)
+class RequestFormAnswerDto {
+  const RequestFormAnswerDto({
+    this.id,
+    this.questionId,
+    this.questionText,
+    this.questionType,
+    this.questionTypeInfo,
+    this.mandatory,
+    this.orderNo,
+    this.textAnswer,
+    this.optionAnswer,
+    this.createdBy,
+    this.createdDate,
+    this.updatedDate,
+  });
+  final int? id, questionId, orderNo;
+  final String? questionText,
+      questionType,
+      textAnswer,
+      createdDate,
+      updatedDate;
+  final IdNameDto? questionTypeInfo, createdBy;
+  final bool? mandatory;
+
+  /// The supplied contract only shows null; retain unknown shapes without guessing.
+  final Object? optionAnswer;
+  factory RequestFormAnswerDto.fromJson(Map<String, dynamic> json) =>
+      _$RequestFormAnswerDtoFromJson(json);
+  Map<String, dynamic> toJson() => _$RequestFormAnswerDtoToJson(this);
+}
+
+@JsonSerializable(explicitToJson: true)
+class RequestTimelineEventDto {
+  const RequestTimelineEventDto({
+    this.dateTime,
+    this.actionType,
+    this.eventType,
+    this.eventTitle,
+    this.eventDescription,
+    this.remark,
+    this.oldValue,
+    this.newValue,
+    this.referenceId,
+    this.performedBy,
+  });
+  final String? dateTime, eventType, eventTitle, eventDescription, remark;
+  final IdNameDto? actionType, oldValue, newValue, performedBy;
+  final Object? referenceId;
+  factory RequestTimelineEventDto.fromJson(Map<String, dynamic> json) =>
+      _$RequestTimelineEventDtoFromJson(json);
+  Map<String, dynamic> toJson() => _$RequestTimelineEventDtoToJson(this);
+}
 
 @JsonSerializable(explicitToJson: true)
 class RequestLookupData {

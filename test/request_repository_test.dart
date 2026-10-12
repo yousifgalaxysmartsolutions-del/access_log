@@ -14,6 +14,7 @@ import 'package:access_log_plus/features/requests/data/models/request_models.dar
 import 'package:access_log_plus/features/requests/data/repositories/request_repository_impl.dart';
 import 'package:access_log_plus/features/requests/domain/repositories/request_repository.dart';
 import 'request_models_test.dart' show lookupJson, listJson, listBodyJson;
+import 'request_details_test.dart' show requestDetailsFixture;
 
 class _Users implements SessionUserStorage {
   SessionUser? user = const SessionUser(id: '4089', name: 'Test engineer');
@@ -103,6 +104,31 @@ void main() {
     dio.close();
     CapLocaleHolder.instance.update(previousLocale);
   });
+
+  test(
+    'GetRequestDetails uses selected RequestId and existing CAP metadata',
+    () async {
+      respond(requestDetailsFixture);
+      final result = await repo.getRequestDetails(requestId: 3);
+      expect(result, isA<Success<RequestDetailsData>>());
+      final data = (result as Success<RequestDetailsData>).data;
+      expect(data.id, 3);
+      expect(data.formAnswers, hasLength(4));
+      expect(
+        adapter.requests.single.uri.path,
+        '/api/CAP/CapRequest/GetRequestDetails',
+      );
+      expect(adapter.sent['data'], {'RequestId': 3});
+      expect(adapter.sent['userid'], 4089);
+      expect(adapter.sent['lang'], 'en');
+      expect(adapter.sent['ipaddress'], isNotEmpty);
+      respond(null);
+      expect(
+        await repo.getRequestDetails(requestId: 3),
+        isA<FailureResult<RequestDetailsData>>(),
+      );
+    },
+  );
 
   test(
     'lookup success uses session metadata and omits data entirely',

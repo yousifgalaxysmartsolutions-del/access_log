@@ -2,6 +2,9 @@ import '../../../../core/network/result.dart';
 import '../../data/models/request_models.dart';
 
 abstract interface class RequestRepository {
+  Future<Result<RequestDetailsData>> getRequestDetails({
+    required int requestId,
+  });
   Future<Result<RequestLookupData>> getRequestLookup();
 
   Future<Result<RequestListData>> getRequestList({

@@ -12,6 +12,7 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/info_row.dart';
 import '../../widgets/section_card.dart';
 import '../incidents/incident_details_screen.dart';
+import 'api_request_details_screen.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key, this.isActive = true});
@@ -777,119 +778,131 @@ class RequestCard extends StatelessWidget {
       _ => AppColors.muted,
     };
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: typeColor.withValues(alpha: .1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: typeColor),
+      child: InkWell(
+        onTap: request.id != null && request.id! > 0
+            ? () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ApiRequestDetailsScreen(requestId: request.id!),
                 ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.tr(
-                          'Request #${request.id ?? '-'}',
-                          'طلب #${request.id ?? '-'}',
-                        ),
-                        style: AppTypography.section,
-                      ),
-                      Text(
-                        _value(request.requestType?.name),
-                        style: AppTypography.meta,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: .1),
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Text(
-                _value(request.requestStatus?.name),
-                style: AppTypography.meta.copyWith(color: color),
-              ),
-            ),
-            const Divider(height: 27),
-            _CardMeta(
-              icon: Icons.assignment_outlined,
-              value: _value(request.incidentNo),
-            ),
-            const SizedBox(height: 7),
-            _CardMeta(
-              icon: Icons.cell_tower,
-              value:
-                  '${_value(request.locationName)} • ${_value(request.locationCode)}',
-            ),
-            const SizedBox(height: 7),
-            _CardMeta(
-              icon: Icons.event_outlined,
-              value: formatCapApiDate(request.createdDate),
-            ),
-            const SizedBox(height: 7),
-            _CardMeta(
-              icon: Icons.person_outline,
-              value: _value(request.createdBy?.name),
-            ),
-            const SizedBox(height: 7),
-            _CardMeta(icon: Icons.notes, value: _value(request.remark)),
-            if (canDecideRequest(request, lookup)) ...[
-              const Divider(height: 27),
+              )
+            : null,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Row(
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: actionBusy ? null : onReject,
-                      icon: actingAction == RequestActionKind.reject
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                key: ValueKey('decision-${request.id}'),
-                              ),
-                            )
-                          : const Icon(Icons.close_rounded),
-                      label: Text(context.tr('Reject', 'رفض')),
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: typeColor.withValues(alpha: .1),
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                    child: Icon(icon, color: typeColor),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 11),
                   Expanded(
-                    child: FilledButton.icon(
-                      onPressed: actionBusy ? null : onApprove,
-                      icon: actingAction == RequestActionKind.approve
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                key: ValueKey('decision-${request.id}'),
-                              ),
-                            )
-                          : const Icon(Icons.check_rounded),
-                      label: Text(context.tr('Approve', 'موافقة')),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          context.tr(
+                            'Request #${request.id ?? '-'}',
+                            'طلب #${request.id ?? '-'}',
+                          ),
+                          style: AppTypography.section,
+                        ),
+                        Text(
+                          _value(request.requestType?.name),
+                          style: AppTypography.meta,
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .1),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text(
+                  _value(request.requestStatus?.name),
+                  style: AppTypography.meta.copyWith(color: color),
+                ),
+              ),
+              const Divider(height: 27),
+              _CardMeta(
+                icon: Icons.assignment_outlined,
+                value: _value(request.incidentNo),
+              ),
+              const SizedBox(height: 7),
+              _CardMeta(
+                icon: Icons.cell_tower,
+                value:
+                    '${_value(request.locationName)} • ${_value(request.locationCode)}',
+              ),
+              const SizedBox(height: 7),
+              _CardMeta(
+                icon: Icons.event_outlined,
+                value: formatCapApiDate(request.createdDate),
+              ),
+              const SizedBox(height: 7),
+              _CardMeta(
+                icon: Icons.person_outline,
+                value: _value(request.createdBy?.name),
+              ),
+              const SizedBox(height: 7),
+              _CardMeta(icon: Icons.notes, value: _value(request.remark)),
+              if (canDecideRequest(request, lookup)) ...[
+                const Divider(height: 27),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: actionBusy ? null : onReject,
+                        icon: actingAction == RequestActionKind.reject
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  key: ValueKey('decision-${request.id}'),
+                                ),
+                              )
+                            : const Icon(Icons.close_rounded),
+                        label: Text(context.tr('Reject', 'رفض')),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: actionBusy ? null : onApprove,
+                        icon: actingAction == RequestActionKind.approve
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  key: ValueKey('decision-${request.id}'),
+                                ),
+                              )
+                            : const Icon(Icons.check_rounded),
+                        label: Text(context.tr('Approve', 'موافقة')),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

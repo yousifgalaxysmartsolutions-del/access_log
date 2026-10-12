@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:access_log_plus/features/requests/presentation/bloc/request_details_cubit.dart';
+import 'package:access_log_plus/screens/requests/api_request_details_screen.dart';
+import 'request_details_test.dart' show RequestDetailsTestCubit;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:access_log_plus/core/di/injection.dart';
@@ -639,7 +642,7 @@ void main() {
     ) async {
       await pumpScreen(tester);
       await settle(tester);
-      expect(find.text('General payload that must survive'), findsOneWidget);
+      expect(find.text('General payload that must survive'), findsNWidgets(2));
 
       await tapTab(tester, 'Related Requests');
       await settle(tester);
@@ -651,7 +654,7 @@ void main() {
 
       await tapTab(tester, 'General');
       await settle(tester);
-      expect(find.text('General payload that must survive'), findsOneWidget);
+      expect(find.text('General payload that must survive'), findsNWidgets(2));
     });
 
     testWidgets('a Related Requests failure leaves General untouched', (
@@ -675,13 +678,13 @@ void main() {
       await settle(tester);
       // No General skeleton and no General error took over.
       expect(find.byType(SkeletonBox), findsNothing);
-      expect(find.text('General payload that must survive'), findsOneWidget);
+      expect(find.text('General payload that must survive'), findsNWidgets(2));
       expect(find.text('Service unavailable'), findsNothing);
     });
   });
 
   group('14. pending integrations', () {
-    testWidgets('no card navigates to a fabricated request details screen', (
+    testWidgets('card navigates to API request details with its real ID', (
       tester,
     ) async {
       await pumpScreen(tester);
@@ -691,14 +694,15 @@ void main() {
       await settle(tester);
 
       expect(find.text('Request ID: 1'), findsOneWidget);
-      // Tap where the card body is: navigation is disabled until a real
-      // GetRequestDetails API exists.
+      services.registerFactory<RequestDetailsCubit>(
+        () => RequestDetailsTestCubit(),
+      );
       await tester.tap(find.text('Request ID: 1'));
       await settle(tester);
 
-      expect(find.text('Related Requests'), findsWidgets);
-      expect(find.text('Request ID: 1'), findsOneWidget);
-      expect(find.textContaining('Questionnaire'), findsNothing);
+      expect(find.byType(ApiRequestDetailsScreen), findsOneWidget);
+      expect(find.text('Request #1'), findsOneWidget);
+      expect(find.text('No questionnaire answers returned.'), findsOneWidget);
       expect(repository.requestsCalls, 1);
     });
 

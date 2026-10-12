@@ -13,6 +13,11 @@ part 'request_api_service.g.dart';
 abstract class RequestApiService {
   factory RequestApiService(Dio dio, {String? baseUrl}) = _RequestApiService;
 
+  @POST('CAP/CapRequest/GetRequestDetails')
+  Future<ApiResponse> getRequestDetails(
+    @Body() CapRequest<RequestDetailsInput> body,
+  );
+
   @POST('CAP/CapConfiguration/GetRequestConfiguration')
   Future<ApiResponse> getRequestConfiguration(
     @Body() CapRequest<RequestConfigurationInput> body,

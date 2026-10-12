@@ -17,6 +17,21 @@ class RequestRepositoryImpl implements RequestRepository {
   final RequestApiService _api;
   final ApiRequestContextProvider _context;
 
+  @override
+  Future<Result<RequestDetailsData>> getRequestDetails({
+    required int requestId,
+  }) => _perform(
+    _context.wrap(
+      RequestDetailsInput(requestId: requestId),
+      authenticationMessage: _signIn,
+    ),
+    _api.getRequestDetails,
+    RequestDetailsData.fromJson,
+    'Unable to load request details',
+    'تعذر تحميل تفاصيل الطلب',
+    'CAP/CapRequest/GetRequestDetails',
+  );
+
   String get _signIn => CapLocaleHolder.instance.isArabic
       ? 'يرجى تسجيل الدخول مجددًا للوصول إلى الطلبات'
       : 'Sign in again to access requests';

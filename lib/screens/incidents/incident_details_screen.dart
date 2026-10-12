@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../requests/api_request_details_screen.dart';
 import '../../features/incidents/presentation/incident_action_configuration_screen.dart';
 import '../../features/incidents/presentation/bloc/incident_action_configuration_cubit.dart';
 import '../../features/incidents/presentation/incident_action_flow_factory.dart';
@@ -1490,10 +1491,7 @@ class _RequestsTabHeader extends StatelessWidget {
 
 /// One request as returned by the API.
 ///
-/// No tap target: `RequestDetailsScreen` needs a full `MyRequest` (questionnaire,
-/// renewal minutes, serial, attachments) that `GetIncidentRequests` does not
-/// return, and fabricating those from `MockData` would show invented data as
-/// real. Navigation returns with the `GetRequestDetails` API.
+/// Fetches full details through `GetRequestDetails` using this item's real ID.
 class _RequestCard extends StatelessWidget {
   const _RequestCard({required this.item});
 
@@ -1503,67 +1501,78 @@ class _RequestCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final statusName = item.requestStatus?.name?.trim();
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    // The API exposes a numeric request id, not a request
-                    // number, so it is labelled as an id and never dressed up as
-                    // something like "REQ-1".
-                    context.tr(
-                      'Request ID: ${item.id ?? '-'}',
-                      'رقم الطلب: ${item.id ?? '-'}',
-                    ),
-                    style: AppTypography.label.copyWith(
-                      color: AppColors.orangeDark,
+      child: InkWell(
+        onTap: item.id != null && item.id! > 0
+            ? () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ApiRequestDetailsScreen(requestId: item.id!),
+                ),
+              )
+            : null,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      // The API exposes a numeric request id, not a request
+                      // number, so it is labelled as an id and never dressed up as
+                      // something like "REQ-1".
+                      context.tr(
+                        'Request ID: ${item.id ?? '-'}',
+                        'رقم الطلب: ${item.id ?? '-'}',
+                      ),
+                      style: AppTypography.label.copyWith(
+                        color: AppColors.orangeDark,
+                      ),
                     ),
                   ),
-                ),
-                _RequestStatusChip(statusName: statusName),
-              ],
-            ),
-            const SizedBox(height: 11),
-            _RequestRow(
-              icon: Icons.category_outlined,
-              label: context.tr('Type', 'النوع'),
-              value: _orDash(item.requestType?.name),
-            ),
-            const SizedBox(height: 7),
-            _RequestRow(
-              icon: Icons.schedule,
-              label: context.tr('Date', 'التاريخ'),
-              value: formatCapApiDate(item.createdDate),
-            ),
-            const SizedBox(height: 7),
-            _RequestRow(
-              icon: Icons.person_outline,
-              label: context.tr('Created By', 'أنشأه'),
-              value: _orDash(item.createdBy?.name),
-            ),
-            const SizedBox(height: 7),
-            _RequestRow(
-              icon: Icons.notes_outlined,
-              label: context.tr('Remark', 'ملاحظات'),
-              value: _orDash(item.remark),
-            ),
-            const SizedBox(height: 7),
-            _RequestRow(
-              icon: Icons.person_pin_circle_outlined,
-              label: context.tr('Last Modified By', 'آخر تعديل بواسطة'),
-              value: _orDash(item.lastModifiedBy?.name),
-            ),
-            const SizedBox(height: 7),
-            _RequestRow(
-              icon: Icons.update,
-              label: context.tr('Last Modified Date', 'تاريخ آخر تعديل'),
-              value: formatCapApiDate(item.lastModifiedDate),
-            ),
-          ],
+                  _RequestStatusChip(statusName: statusName),
+                ],
+              ),
+              const SizedBox(height: 11),
+              _RequestRow(
+                icon: Icons.category_outlined,
+                label: context.tr('Type', 'النوع'),
+                value: _orDash(item.requestType?.name),
+              ),
+              const SizedBox(height: 7),
+              _RequestRow(
+                icon: Icons.schedule,
+                label: context.tr('Date', 'التاريخ'),
+                value: formatCapApiDate(item.createdDate),
+              ),
+              const SizedBox(height: 7),
+              _RequestRow(
+                icon: Icons.person_outline,
+                label: context.tr('Created By', 'أنشأه'),
+                value: _orDash(item.createdBy?.name),
+              ),
+              const SizedBox(height: 7),
+              _RequestRow(
+                icon: Icons.notes_outlined,
+                label: context.tr('Remark', 'ملاحظات'),
+                value: _orDash(item.remark),
+              ),
+              const SizedBox(height: 7),
+              _RequestRow(
+                icon: Icons.person_pin_circle_outlined,
+                label: context.tr('Last Modified By', 'آخر تعديل بواسطة'),
+                value: _orDash(item.lastModifiedBy?.name),
+              ),
+              const SizedBox(height: 7),
+              _RequestRow(
+                icon: Icons.update,
+                label: context.tr('Last Modified Date', 'تاريخ آخر تعديل'),
+                value: formatCapApiDate(item.lastModifiedDate),
+              ),
+            ],
+          ),
         ),
       ),
     );

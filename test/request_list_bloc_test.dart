@@ -13,6 +13,10 @@ import 'package:access_log_plus/features/incidents/data/models/incident_details_
 import 'package:access_log_plus/features/requests/presentation/bloc/request_list_bloc.dart';
 
 class _Repository implements RequestRepository {
+  @override
+  Future<Result<RequestDetailsData>> getRequestDetails({
+    required int requestId,
+  }) async => Success(RequestDetailsData(id: requestId));
   final decisions = <Completer<Result<RequestDecisionData>>>[];
   final actions = <(String, int, String)>[];
   Future<Result<RequestDecisionData>> decide(String kind, int id, String text) {

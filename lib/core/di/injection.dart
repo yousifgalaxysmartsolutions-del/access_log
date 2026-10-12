@@ -21,6 +21,8 @@ import '../../features/requests/data/repositories/request_repository_impl.dart';
 import '../../features/requests/domain/repositories/request_repository.dart';
 import '../../features/requests/domain/usecases/get_request_lookup_use_case.dart';
 import '../../features/requests/domain/usecases/get_request_list_use_case.dart';
+import '../../features/requests/domain/usecases/get_request_details_use_case.dart';
+import '../../features/requests/presentation/bloc/request_details_cubit.dart';
 import '../../features/requests/domain/usecases/approve_request_use_case.dart';
 import '../../features/requests/domain/usecases/reject_request_use_case.dart';
 import '../../ai_copilot/ai_provider_config.dart';
@@ -171,6 +173,12 @@ void registerRequestDependencies() {
       services<RequestApiService>(),
       services<ApiRequestContextProvider>(),
     ),
+  );
+  services.registerLazySingleton<GetRequestDetailsUseCase>(
+    () => GetRequestDetailsUseCase(services<RequestRepository>()),
+  );
+  services.registerFactory<RequestDetailsCubit>(
+    () => RequestDetailsCubit(services<GetRequestDetailsUseCase>()),
   );
   services.registerLazySingleton<RequestCreationRepository>(
     () => RequestCreationRepositoryImpl(
