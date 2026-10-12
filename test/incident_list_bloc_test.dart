@@ -12,9 +12,11 @@ import 'package:access_log_plus/models/models.dart';
 
 class ListRepositoryFake implements IncidentRepository {
   final statusIds = <int>[];
+  final filters = <IncidentListFilter?>[];
+  Result<IncidentLookupData>? lookupResult;
   @override
   Future<Result<IncidentLookupData>> getIncidentLookup() async =>
-      Success(IncidentLookupData());
+      lookupResult ?? Success(IncidentLookupData());
   final calls = <(DateTime, DateTime)>[];
   Result<List<CapIncident>> result = const Success([]);
   Completer<Result<List<CapIncident>>>? gate;
@@ -23,9 +25,11 @@ class ListRepositoryFake implements IncidentRepository {
     required DateTime day,
     DateTime? toDate,
     int statusId = -1,
+    IncidentListFilter? filter,
   }) {
     calls.add((day, toDate ?? day));
     statusIds.add(statusId);
+    filters.add(filter);
     return gate?.future ?? Future.value(result);
   }
 }
@@ -52,6 +56,32 @@ CapIncident apiIncident(
 );
 
 void main() {
+  test('API filters survive Bloc load, refresh and status removal', () async {
+    final repo = ListRepositoryFake();
+    final bloc = IncidentListBloc(GetIncidentListUseCase(repo));
+    addTearDown(bloc.close);
+    const filter = IncidentListFilter(
+      statusId: 8,
+      priorityId: 21,
+      incidentTypeId: 35,
+      locationCode: 'D10739',
+      incidentNumber: 'INC-001',
+    );
+    final day = DateTime(2026, 10, 12);
+    await bloc.load(day, day, filter: filter);
+    expect(repo.statusIds.last, 8);
+    expect(bloc.state.filter, same(filter));
+    await bloc.load(day, day, filter: bloc.state.filter);
+    expect(repo.filters.last?.priorityId, 21);
+    expect(repo.filters.last?.incidentTypeId, 35);
+    await bloc.load(day, day, filter: filter.withoutStatus());
+    expect(repo.statusIds.last, -1);
+    expect(repo.filters.last?.locationCode, 'D10739');
+    expect(repo.filters.last?.incidentNumber, 'INC-001');
+    expect(repo.filters.last?.priorityId, 21);
+    await bloc.load(day, day);
+    expect(repo.filters.last?.priorityId, isNull);
+  });
   test(
     'Lookup status ID survives load and refresh; clearing resets to all',
     () async {

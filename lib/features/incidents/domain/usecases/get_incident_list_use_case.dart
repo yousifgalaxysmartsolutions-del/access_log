@@ -12,9 +12,11 @@ class GetIncidentListUseCase {
     required DateTime day,
     DateTime? toDate,
     int statusId = -1,
+    IncidentListFilter? filter,
   }) => _repository.getIncidentsForDay(
     day: day,
     toDate: toDate,
     statusId: statusId,
+    filter: filter,
   );
 }

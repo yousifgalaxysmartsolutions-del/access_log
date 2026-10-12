@@ -9,5 +9,6 @@ abstract interface class IncidentRepository {
     required DateTime day,
     DateTime? toDate,
     int statusId = -1,
+    IncidentListFilter? filter,
   });
 }

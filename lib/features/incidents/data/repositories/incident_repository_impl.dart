@@ -50,6 +50,7 @@ class IncidentRepositoryImpl implements IncidentRepository {
     required DateTime day,
     DateTime? toDate,
     int statusId = -1,
+    IncidentListFilter? filter,
   }) async {
     // CAP expects both bounds as `yyyy-MM-dd`, so "today" means a single day
     // rather than a range that starts at midnight.
@@ -68,7 +69,11 @@ class IncidentRepositoryImpl implements IncidentRepository {
             fromDate: date,
             toDate: end,
             page: page,
-            statusId: statusId,
+            statusId: filter?.statusId ?? statusId,
+            priorityId: filter?.priorityId ?? -1,
+            incidentTypeId: filter?.incidentTypeId ?? -1,
+            locationCode: filter?.locationCode ?? '',
+            incidentNo: filter?.incidentNumber ?? '',
           ),
           authenticationMessage: 'Sign in again to load incidents',
         );

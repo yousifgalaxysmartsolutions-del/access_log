@@ -14,17 +14,25 @@ class IncidentListState {
     this.incidents = const [],
     this.failure,
     this.statusId = -1,
+    this.filter = const IncidentListFilter(),
   });
   final DateTime from, to;
   final bool loading;
   final List<CapIncident> incidents;
   final Failure? failure;
   final int statusId;
+  final IncidentListFilter filter;
 }
 
 class LoadIncidentList {
-  LoadIncidentList(this.from, this.to, {this.statusId = -1});
+  LoadIncidentList(
+    this.from,
+    this.to, {
+    this.statusId = -1,
+    this.filter = const IncidentListFilter(),
+  });
   final int statusId;
+  final IncidentListFilter filter;
   final DateTime from, to;
   final done = Completer<void>();
 }
@@ -48,6 +56,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
               to: state.to,
               incidents: state.incidents,
               statusId: state.statusId,
+              filter: state.filter,
               failure: const ValidationFailure(),
             ),
           );
@@ -56,7 +65,11 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
         final sameRange =
             event.from == state.from &&
             event.to == state.to &&
-            event.statusId == state.statusId;
+            event.statusId == state.statusId &&
+            event.filter.priorityId == state.filter.priorityId &&
+            event.filter.incidentTypeId == state.filter.incidentTypeId &&
+            event.filter.locationCode == state.filter.locationCode &&
+            event.filter.incidentNumber == state.filter.incidentNumber;
         final previous = sameRange ? state.incidents : <CapIncident>[];
         emit(
           IncidentListState(
@@ -65,6 +78,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
             loading: true,
             incidents: previous,
             statusId: event.statusId,
+            filter: event.filter,
           ),
         );
         final result = _getList == null
@@ -73,6 +87,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
                 day: event.from,
                 toDate: event.to,
                 statusId: event.statusId,
+                filter: event.filter,
               );
         if (request != _request || emit.isDone) return;
         switch (result) {
@@ -83,6 +98,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
                 to: event.to,
                 incidents: data,
                 statusId: event.statusId,
+                filter: event.filter,
               ),
             );
           case FailureResult(:final failure):
@@ -93,6 +109,7 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
                 incidents: previous,
                 failure: failure,
                 statusId: event.statusId,
+                filter: event.filter,
               ),
             );
         }
@@ -116,11 +133,17 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
     );
   }
 
-  Future<void> load(DateTime from, DateTime to, {int statusId = -1}) {
+  Future<void> load(
+    DateTime from,
+    DateTime to, {
+    int statusId = -1,
+    IncidentListFilter filter = const IncidentListFilter(),
+  }) {
     final event = LoadIncidentList(
       dayOnly(from),
       dayOnly(to),
-      statusId: statusId,
+      statusId: filter.statusId ?? statusId,
+      filter: filter,
     );
     add(event);
     return event.done.future;

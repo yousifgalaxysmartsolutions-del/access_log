@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../features/incidents/data/incident_lookup_store.dart';
+import '../../features/incidents/data/models/incident_lookup_models.dart';
+import '../../core/network/result.dart';
 import '../../core/di/injection.dart';
 import '../../core/error/failure.dart';
 import '../../features/incidents/domain/usecases/get_incident_list_use_case.dart';
@@ -45,8 +47,11 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
           : null,
     );
     final (from, to) = IncidentListBloc.range(filter);
-    bloc.load(from, to, statusId: filter.statusId ?? -1);
+    _load(from, to);
   }
+
+  Future<void> _load(DateTime from, DateTime to) =>
+      bloc.load(from, to, statusId: filter.statusId ?? -1, filter: filter);
 
   @override
   void didUpdateWidget(IncidentListScreen oldWidget) {
@@ -57,7 +62,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       searchController.clear();
       sort = IncidentSort.newest;
       final (from, to) = IncidentListBloc.range(filter);
-      unawaited(bloc.load(from, to));
+      unawaited(_load(from, to));
     }
   }
 
@@ -94,14 +99,13 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
             incident.location,
           ].any((value) => value.toLowerCase().contains(query));
       return matchesSearch &&
-          (filter.statusId != null
-              ? incident.backendStatusId == filter.statusId
-              : filter.status == null || incident.status == filter.status) &&
+          (filter.statusId != null ||
+              filter.status == null ||
+              incident.status == filter.status) &&
           (filter.priority == null || incident.priority == filter.priority) &&
           contains(incident.region, filter.region) &&
           contains(incident.area, filter.area) &&
           contains('${incident.siteName} ${incident.siteCode}', filter.site) &&
-          contains(incident.number, filter.incidentNumber) &&
           contains(incident.type, filter.type) &&
           contains(incident.location, filter.location);
     }).toList();
@@ -132,7 +136,12 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Material(child: IncidentFilterSheet(initial: filter)),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: Material(child: IncidentFilterSheet(initial: filter)),
+      ),
     );
     if (updated != null && mounted) {
       final (from, to) = IncidentListBloc.range(updated);
@@ -140,8 +149,12 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       setState(() => filter = updated);
       if (from != bloc.state.from ||
           to != bloc.state.to ||
-          (updated.statusId ?? -1) != bloc.state.statusId) {
-        await bloc.load(from, to, statusId: updated.statusId ?? -1);
+          (updated.statusId ?? -1) != bloc.state.statusId ||
+          updated.priorityId != bloc.state.filter.priorityId ||
+          updated.incidentTypeId != bloc.state.filter.incidentTypeId ||
+          updated.locationCode != bloc.state.filter.locationCode ||
+          updated.incidentNumber != bloc.state.filter.incidentNumber) {
+        await _load(from, to);
       }
     }
   }
@@ -187,8 +200,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
       ),
       body: RefreshIndicator(
         color: AppColors.orange,
-        onRefresh: () =>
-            bloc.load(state.from, state.to, statusId: filter.statusId ?? -1),
+        onRefresh: () => _load(state.from, state.to),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
@@ -285,15 +297,20 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
                       ),
                     ],
                   ),
-                  if (filter.status != null) ...[
+                  if (filter.status != null || filter.statusId != null) ...[
                     const SizedBox(height: 10),
                     Align(
                       alignment: AlignmentDirectional.centerStart,
                       child: InputChip(
-                        label: Text(_statusLabel(context, filter.status!)),
+                        label: Text(
+                          filter.statusName ??
+                              (filter.status == null
+                                  ? '${filter.statusId}'
+                                  : _statusLabel(context, filter.status!)),
+                        ),
                         onDeleted: () {
                           setState(() => filter = filter.withoutStatus());
-                          unawaited(bloc.load(state.from, state.to));
+                          unawaited(_load(state.from, state.to));
                         },
                       ),
                     ),
@@ -319,11 +336,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
                             ),
                     ),
                     TextButton.icon(
-                      onPressed: () => bloc.load(
-                        state.from,
-                        state.to,
-                        statusId: filter.statusId ?? -1,
-                      ),
+                      onPressed: () => _load(state.from, state.to),
                       icon: const Icon(Icons.refresh),
                       label: Text(context.tr('Retry', 'إعادة المحاولة')),
                     ),
@@ -388,15 +401,18 @@ class IncidentFilterSheet extends StatefulWidget {
 }
 
 class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
-  late CapIncidentStatus? status = widget.initial.status;
-  late Priority? priority = widget.initial.priority;
+  late int statusId = widget.initial.statusId ?? -1;
+  late int priorityId = widget.initial.priorityId ?? -1;
+  late int incidentTypeId = widget.initial.incidentTypeId ?? -1;
+  IncidentLookupData? lookup;
+  bool lookupLoading = false;
+  bool lookupFailed = false;
   late final region = TextEditingController(text: widget.initial.region);
   late final area = TextEditingController(text: widget.initial.area);
-  late final site = TextEditingController(text: widget.initial.site);
+  late final site = TextEditingController(text: widget.initial.locationCode);
   late final number = TextEditingController(
     text: widget.initial.incidentNumber,
   );
-  late final type = TextEditingController(text: widget.initial.type);
   late final location = TextEditingController(text: widget.initial.location);
   DateTime? from;
   DateTime? to;
@@ -407,11 +423,69 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
     super.initState();
     from = widget.initial.from;
     to = widget.initial.to;
+    if (services.isRegistered<IncidentLookupStore>()) {
+      lookup = services<IncidentLookupStore>().current;
+    }
+    if (lookup == null) unawaited(_loadLookup());
+  }
+
+  Future<void> _loadLookup() async {
+    setState(() {
+      lookupLoading = true;
+      lookupFailed = false;
+    });
+    if (!services.isRegistered<IncidentLookupStore>()) {
+      setState(() {
+        lookupLoading = false;
+        lookupFailed = true;
+      });
+      return;
+    }
+    final result = await services<IncidentLookupStore>().refresh();
+    if (!mounted) return;
+    setState(() {
+      lookupLoading = false;
+      if (result is Success<IncidentLookupData>) {
+        lookup = result.data;
+      } else {
+        lookupFailed = true;
+      }
+    });
+  }
+
+  Widget _lookupField(
+    String label,
+    IconData icon,
+    List<IncidentLookupItem> items,
+    int selected,
+    ValueChanged<int> onChanged,
+  ) {
+    final choices = <int, String>{
+      -1: context.tr('All', 'الكل'),
+      for (final item in items)
+        if (item.id != null && item.id! > 0) item.id!: item.name ?? '-',
+    };
+    if (!choices.containsKey(selected)) choices[selected] = '$selected';
+    return DropdownButtonFormField<int>(
+      key: ValueKey('$label:$selected:${choices.entries}'),
+      isExpanded: true,
+      initialValue: selected,
+      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+      items: choices.entries
+          .map(
+            (entry) =>
+                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+          )
+          .toList(),
+      onChanged: lookupLoading || lookupFailed
+          ? null
+          : (value) => onChanged(value ?? -1),
+    );
   }
 
   @override
   void dispose() {
-    for (final controller in [region, area, site, number, type, location]) {
+    for (final controller in [region, area, site, number, location]) {
       controller.dispose();
     }
     super.dispose();
@@ -529,7 +603,7 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
               const SizedBox(height: 12),
               _Field(
                 controller: site,
-                label: context.tr('Site name or code', 'اسم أو كود الموقع'),
+                label: context.tr('Location code', 'كود الموقع'),
                 icon: Icons.cell_tower,
               ),
               const SizedBox(height: 12),
@@ -539,46 +613,42 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                 icon: Icons.tag,
               ),
               const SizedBox(height: 12),
-              _Field(
-                controller: type,
-                label: context.tr('Incident type', 'نوع البلاغ'),
-                icon: Icons.category_outlined,
+              if (lookupLoading) const LinearProgressIndicator(),
+              if (lookupFailed) ...[
+                Text(
+                  context.tr(
+                    'Unable to load filter options.',
+                    'تعذّر تحميل خيارات الفلترة.',
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _loadLookup,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(context.tr('Retry', 'إعادة المحاولة')),
+                ),
+              ],
+              _lookupField(
+                context.tr('Incident type', 'نوع البلاغ'),
+                Icons.category_outlined,
+                lookup?.incidentType ?? const [],
+                incidentTypeId,
+                (value) => setState(() => incidentTypeId = value),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<CapIncidentStatus>(
-                isExpanded: true,
-                initialValue: status,
-                decoration: InputDecoration(
-                  labelText: context.tr('Status', 'الحالة'),
-                  prefixIcon: const Icon(Icons.sync_alt),
-                ),
-                items: CapIncidentStatus.values
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(_statusLabel(context, value)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => status = value),
+              _lookupField(
+                context.tr('Status', 'الحالة'),
+                Icons.sync_alt,
+                lookup?.status ?? const [],
+                statusId,
+                (value) => setState(() => statusId = value),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<Priority>(
-                isExpanded: true,
-                initialValue: priority,
-                decoration: InputDecoration(
-                  labelText: context.tr('Priority', 'الأولوية'),
-                  prefixIcon: const Icon(Icons.flag_outlined),
-                ),
-                items: Priority.values
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(_priorityLabel(context, value)),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => priority = value),
+              _lookupField(
+                context.tr('Priority', 'الأولوية'),
+                Icons.flag_outlined,
+                lookup?.priority ?? const [],
+                priorityId,
+                (value) => setState(() => priorityId = value),
               ),
               const SizedBox(height: 12),
               _Field(
@@ -617,16 +687,23 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                     Navigator.pop(
                       context,
                       IncidentListFilter(
-                        status: status,
-                        statusId: status == widget.initial.status
-                            ? widget.initial.statusId
-                            : null,
-                        priority: priority,
+                        statusId: statusId == -1 ? null : statusId,
+                        statusName:
+                            lookup?.status
+                                .where((item) => item.id == statusId)
+                                .firstOrNull
+                                ?.name ??
+                            (statusId == widget.initial.statusId
+                                ? widget.initial.statusName
+                                : null),
+                        priorityId: priorityId == -1 ? null : priorityId,
+                        incidentTypeId: incidentTypeId == -1
+                            ? null
+                            : incidentTypeId,
                         region: region.text,
                         area: area.text,
-                        site: site.text,
+                        locationCode: site.text,
                         incidentNumber: number.text,
-                        type: type.text,
                         location: location.text,
                         from: from,
                         to: to,
@@ -699,11 +776,3 @@ String _statusLabel(BuildContext context, CapIncidentStatus status) {
   }
   return name;
 }
-
-String _priorityLabel(BuildContext context, Priority priority) =>
-    switch (priority) {
-      Priority.critical => context.tr('Critical', 'حرجة'),
-      Priority.high => context.tr('High', 'عالية'),
-      Priority.medium => context.tr('Medium', 'متوسطة'),
-      Priority.low => context.tr('Low', 'منخفضة'),
-    };

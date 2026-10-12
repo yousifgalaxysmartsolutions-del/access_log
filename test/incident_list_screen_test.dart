@@ -2,6 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:access_log_plus/core/session/session_manager.dart';
+import 'package:access_log_plus/core/storage/secure_storage_service.dart';
+import 'package:access_log_plus/features/incidents/data/incident_lookup_store.dart';
+import 'package:access_log_plus/features/incidents/data/models/incident_lookup_models.dart';
+import 'package:access_log_plus/features/incidents/domain/usecases/get_incident_lookup_use_case.dart';
 import 'package:access_log_plus/core/di/injection.dart';
 import 'package:access_log_plus/core/error/failure.dart';
 import 'package:access_log_plus/core/network/result.dart';
@@ -49,6 +55,101 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
   }
+
+  Future<void> registerLookup() async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final session = SessionManager(SecureStorageService())..startDemo();
+    services.registerSingleton<SessionManager>(
+      session,
+      dispose: (value) => value.dispose(),
+    );
+    repo.lookupResult = Success(
+      IncidentLookupData(
+        status: const [
+          IncidentLookupItem(
+            id: 82,
+            name: 'Backend Status',
+            code: 'FULLY_REJECTED',
+          ),
+        ],
+        priority: const [IncidentLookupItem(id: 31, name: 'Backend Priority')],
+        incidentType: const [IncidentLookupItem(id: 72, name: 'Backend Type')],
+      ),
+    );
+    services.registerSingleton<IncidentLookupStore>(
+      IncidentLookupStore(GetIncidentLookupUseCase(repo), session),
+      dispose: (value) => value.dispose(),
+    );
+  }
+
+  testWidgets(
+    'lookup dropdown IDs and manual fields reach API filters; refresh and reset work',
+    (tester) async {
+      tester.view.physicalSize = const Size(430, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await registerLookup();
+      await open(tester);
+      await tester.tap(find.text('Filters'));
+      await tester.pumpAndSettle();
+      final dropdowns = find.byType(DropdownButtonFormField<int>);
+      expect(dropdowns, findsNWidgets(3));
+      expect(
+        tester
+            .widget<DropdownButton<int>>(find.byType(DropdownButton<int>).at(0))
+            .items!
+            .map((item) => item.value),
+        [-1, 72],
+      );
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(0)).onChanged!(
+        72,
+      );
+      await tester.pump();
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(1)).onChanged!(
+        82,
+      );
+      await tester.pump();
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(2)).onChanged!(
+        31,
+      );
+      await tester.pump();
+      Finder field(String label) => find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.labelText == label,
+      );
+      await tester.enterText(field('Location code'), 'D10739');
+      await tester.enterText(field('Incident number'), 'INC-001');
+      await tester.tap(find.text('Apply Filters'));
+      await tester.pumpAndSettle();
+      expect(repo.calls, hasLength(2));
+      expect(repo.statusIds.last, 82);
+      expect(repo.filters.last?.priorityId, 31);
+      expect(repo.filters.last?.incidentTypeId, 72);
+      expect(repo.filters.last?.locationCode, 'D10739');
+      expect(repo.filters.last?.incidentNumber, 'INC-001');
+      // The server response is authoritative, not filtered again by guessed enums.
+      expect(find.byType(CapIncidentCard), findsNWidgets(2));
+      await tester
+          .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+          .onRefresh();
+      await tester.pumpAndSettle();
+      expect(repo.filters.last?.incidentTypeId, 72);
+      tester.widget<InputChip>(find.byType(InputChip)).onDeleted!();
+      await tester.pumpAndSettle();
+      expect(repo.statusIds.last, -1);
+      expect(repo.filters.last?.priorityId, 31);
+      await tester.tap(find.text('Filters'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reset'));
+      await tester.pumpAndSettle();
+      expect(repo.statusIds.last, -1);
+      expect(repo.filters.last?.priorityId, isNull);
+      expect(repo.filters.last?.incidentTypeId, isNull);
+      expect(repo.filters.last?.locationCode, isNull);
+      expect(repo.filters.last?.incidentNumber, isNull);
+    },
+  );
 
   testWidgets(
     'tab return clears filters and search and displays fresh default-day results',
@@ -209,7 +310,7 @@ void main() {
       tester.widget<InputChip>(find.byType(InputChip)).onDeleted!();
       await tester.pump();
       expect(find.byType(CapIncidentCard), findsOneWidget);
-      expect(repo.calls.length, 1);
+      expect(repo.calls.length, 2);
       await tester.enterText(find.byType(TextField), 'nonexistent');
       await tester.pump();
       expect(find.text('No incidents found'), findsOneWidget);

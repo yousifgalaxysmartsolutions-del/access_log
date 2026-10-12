@@ -20,6 +20,7 @@ class DemoIncidentRepository implements IncidentRepository {
     required DateTime day,
     DateTime? toDate,
     int statusId = -1,
+    IncidentListFilter? filter,
   }) async => Success(prototypeDay);
 
   /// Fixed prototype day, kept independent of the wall clock so the demo and the

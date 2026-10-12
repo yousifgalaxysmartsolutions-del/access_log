@@ -105,6 +105,53 @@ void main() {
       );
 
   test(
+    'lookup IDs and manual fields are sent unchanged on every API page',
+    () async {
+      final adapter = _StubAdapter(_payload);
+      adapter.respond = (options) {
+        final data =
+            (jsonDecode(jsonEncode(options.data)) as Map)['data'] as Map;
+        expect(data['IncidentTypeId'], 35);
+        expect(data['StatusId'], 8);
+        expect(data['PriorityId'], 21);
+        expect(data['LocationCode'], 'D10739');
+        expect(data['IncidentNo'], 'INC-001');
+        final page = data['Page'] as int;
+        return {
+          'resultcode': 1,
+          'data': {
+            'items': [
+              {'incidentId': page},
+            ],
+            'totalCount': 2,
+            'page': page,
+            'pageSize': 1,
+          },
+        };
+      };
+      final dio = Dio(BaseOptions(baseUrl: 'https://cap.test'))
+        ..httpClientAdapter = adapter;
+      addTearDown(() => dio.close(force: true));
+      final repo = IncidentRepositoryImpl(
+        IncidentApiService(dio),
+        contextWith(const SessionUser(id: '4098')),
+      );
+      final result = await repo.getIncidentsForDay(
+        day: DateTime(2026, 10, 12),
+        filter: const IncidentListFilter(
+          statusId: 8,
+          priorityId: 21,
+          incidentTypeId: 35,
+          locationCode: 'D10739',
+          incidentNumber: 'INC-001',
+        ),
+      );
+      expect(result, isA<Success<List<CapIncident>>>());
+      expect(adapter.requests, hasLength(2));
+    },
+  );
+
+  test(
     'range requests use existing paging keys and collect every page',
     () async {
       final adapter = _StubAdapter(_payload);

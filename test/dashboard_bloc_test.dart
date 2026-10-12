@@ -54,6 +54,7 @@ class _FakeIncidentRepository implements IncidentRepository {
     required DateTime day,
     DateTime? toDate,
     int statusId = -1,
+    IncidentListFilter? filter,
   }) async {
     calls++;
     return Success(const []);
