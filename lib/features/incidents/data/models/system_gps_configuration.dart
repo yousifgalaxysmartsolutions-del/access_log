@@ -12,7 +12,10 @@ class SystemGpsConfiguration {
       throw const FormatException('Invalid GPS radius');
     }
     return SystemGpsConfiguration(
-      radiusMeters: radius,
+      // TEMPORARY TEST OVERRIDE: 1,000,000 km, expressed in meters.
+      // Restore the original line below after testing:
+      // radiusMeters: radius,
+      radiusMeters: 1000000000,
       enableGpsValidation: gps['enableGpsValidation'] as bool,
     );
   }

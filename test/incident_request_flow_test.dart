@@ -280,13 +280,35 @@ void main() {
       expect(requests.calls, isEmpty);
     },
   );
+  test(
+    'request optional photo is visible, collectable and not required',
+    () async {
+      requests.configuration = const RequestConfiguration(
+        gpsRequired: false,
+        photoRequiredLevel: 0,
+      );
+      flow = build(status: 1);
+      await flow.start();
+      expect(flow.state.showsPhoto, isTrue);
+      expect(flow.state.requiresPhoto, isFalse);
+      expect(flow.state.requirementsValid, isTrue);
+      expect(photoCalls, 0);
+      await flow.capturePhoto();
+      expect(photoCalls, 1);
+      expect(flow.state.photo, isNotNull);
+      flow.removePhoto();
+      expect(flow.state.requirementsValid, isTrue);
+      await flow.continueExecution();
+      expect(requests.calls, hasLength(1));
+    },
+  );
   for (final formId in [null, '', '   ']) {
     test(
-      'No form ($formId), GPS false, photo zero skips all collections',
+      'No form ($formId), GPS false, hidden photo skips all collections',
       () async {
         requests.configuration = RequestConfiguration(
           gpsRequired: false,
-          photoRequiredLevel: 0,
+          photoRequiredLevel: 2,
           questionFormId: formId,
         );
         flow = build(status: 99);

@@ -177,7 +177,7 @@ void main() {
     'configuration with no requirements skips collection and form',
     () async {
       config.result = const Success(
-        IncidentActionConfiguration(gpsRequired: false, photoRequiredLevel: 0),
+        IncidentActionConfiguration(gpsRequired: false, photoRequiredLevel: 2),
       );
       final flow = coordinator();
       await flow.start();
@@ -407,6 +407,50 @@ void main() {
       expect(flow.form.state.form!.id, 1087);
     },
   );
+  for (final level in [0, 1, 2]) {
+    test(
+      'photo policy $level controls visibility and required validation',
+      () async {
+        config.result = Success(
+          IncidentActionConfiguration(
+            gpsRequired: false,
+            photoRequiredLevel: level,
+          ),
+        );
+        final flow = coordinator();
+        await flow.start();
+        expect(flow.state.showsPhoto, level != 2);
+        expect(flow.state.requiresPhoto, level == 1);
+        expect(flow.state.unknownPhotoPolicy, isFalse);
+        expect(flow.state.requirementsValid, level != 1);
+        if (level == 0) {
+          await flow.capturePhoto();
+          expect(flow.state.photo, isNotNull);
+          flow.removePhoto();
+          expect(flow.state.photo, isNull);
+          expect(flow.state.requirementsValid, isTrue);
+        }
+      },
+    );
+  }
+  test('optional photo policy invokes camera when requested', () async {
+    var captures = 0;
+    final result = await resolveActionPhoto(
+      0,
+      capturePhoto: () async {
+        captures++;
+        return null;
+      },
+    );
+    expect(captures, 1);
+    expect(result.outcome, ActionPhotoOutcome.cancelled);
+    await resolveActionPhoto(
+      2,
+      capturePhoto: () async {
+        fail('Hidden photo must not open camera');
+      },
+    );
+  });
   test('unknown photo levels are not guessed', () async {
     for (final level in <int?>[null, 9]) {
       config.result = Success(
@@ -652,7 +696,7 @@ void main() {
           config.result = Success(
             IncidentActionConfiguration(
               gpsRequired: sections != 'photo',
-              photoRequiredLevel: sections == 'gps' ? 0 : 1,
+              photoRequiredLevel: sections == 'gps' ? 2 : 1,
               questionFormId: sections == 'all' ? '1087' : null,
             ),
           );

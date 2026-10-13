@@ -44,16 +44,16 @@ const _unchanged = Object();
 Future<ActionPhotoResult> unresolvedActionPhotoPolicy(int? level) async =>
     const ActionPhotoResult(ActionPhotoOutcome.awaitingPolicy);
 
-/// Confirmed business rules: zero skips photos; one requires camera evidence.
+/// Confirmed business rules: zero is optional, one required, two hidden.
 /// Other values remain undefined rather than silently bypassing requirements.
 Future<ActionPhotoResult> resolveActionPhoto(
   int? level, {
   required Future<CapFormEvidence?> Function() capturePhoto,
 }) async {
-  if (level == 0) {
+  if (level == 2) {
     return const ActionPhotoResult(ActionPhotoOutcome.completed);
   }
-  if (level != 1) return unresolvedActionPhotoPolicy(level);
+  if (level != 0 && level != 1) return unresolvedActionPhotoPolicy(level);
   final evidence = await capturePhoto();
   if (evidence == null || evidence.bytes.isEmpty) {
     return const ActionPhotoResult(ActionPhotoOutcome.cancelled);
@@ -93,15 +93,18 @@ class ActionConfigurationState {
   final String remark;
   bool get requiresLocation => configuration?.gpsRequired ?? false;
   bool get requiresPhoto => configuration?.photoRequiredLevel == 1;
+  bool get showsPhoto =>
+      configuration?.photoRequiredLevel == 0 || requiresPhoto;
   bool get requiresForm =>
       configuration?.questionFormId?.trim().isNotEmpty ?? false;
   // Unknown levels keep their previous fail-closed behavior.
   bool get unknownPhotoPolicy =>
       configuration != null &&
       configuration!.photoRequiredLevel != 0 &&
-      configuration!.photoRequiredLevel != 1;
+      configuration!.photoRequiredLevel != 1 &&
+      configuration!.photoRequiredLevel != 2;
   bool get hasRequirements =>
-      requiresLocation || requiresPhoto || requiresForm || unknownPhotoPolicy;
+      requiresLocation || showsPhoto || requiresForm || unknownPhotoPolicy;
 
   ActionConfigurationState requirementsState({
     ActionConfigurationStage? stage,
@@ -490,7 +493,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
   }
 
   Future<void> capturePhoto() async {
-    if (!_editingRequirements || !state.requiresPhoto || state.photoBusy) {
+    if (!_editingRequirements || !state.showsPhoto || state.photoBusy) {
       return;
     }
     await _updatePhoto(() async {

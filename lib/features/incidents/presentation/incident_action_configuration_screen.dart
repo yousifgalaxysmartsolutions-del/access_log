@@ -319,13 +319,13 @@ class _IncidentActionConfigurationScreenState
                                   ],
                                 ),
                               ),
-                            if (state.requiresPhoto)
+                            if (state.showsPhoto)
                               _RequirementCard(
                                 key: _photoKey,
                                 sectionKey: const ValueKey('photo-section'),
                                 title: context.tr('Photo', 'الصورة'),
                                 icon: Icons.photo_camera_outlined,
-                                required: true,
+                                required: state.requiresPhoto,
                                 completed: state.photo != null,
                                 busy: state.photoBusy,
                                 child: Column(
