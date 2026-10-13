@@ -1,4 +1,7 @@
 import 'dart:math' as math;
+import '../../features/reports/data/models/engineer_locations_report_models.dart';
+import 'engineer_sites_report_screen.dart';
+export 'engineer_sites_report_screen.dart' show EngineerSitesReportScreen;
 import '../../features/reports/data/models/incident_report_models.dart';
 import '../../features/incidents/data/mappers/incident_mapper.dart';
 import 'incident_report_screen.dart';
@@ -887,111 +890,88 @@ class _RequestFlowCard extends StatelessWidget {
   }
 }
 
-class EngineerSitesReportScreen extends StatelessWidget {
-  const EngineerSitesReportScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final sites = _engineerSiteWork();
-    final incidentCount = sites.fold<int>(
-      0,
-      (total, item) => total + item.incidents.length,
-    );
-    final requestCount = sites.fold<int>(
-      0,
-      (total, item) => total + item.requests.length,
-    );
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.tr('Engineer Sites Report', 'تقرير مواقع المهندس')),
-      ),
-      body: sites.isEmpty
-          ? EmptyState(
-              icon: Icons.pin_drop_outlined,
-              title: context.tr('No Site Activity', 'لا توجد أنشطة مواقع'),
-              description: context.tr(
-                'Engineer site activity will appear here.',
-                'ستظهر هنا أنشطة المهندس في المواقع.',
-              ),
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
+/// The existing engineer report visuals, bound to CAP values only.
+abstract final class EngineerSitesReportVisuals {
+  static Widget site(EngineerLocationReportItem item) =>
+      _EngineerSiteCard(site: item);
+  static Widget summary(
+    BuildContext context,
+    EngineerLocationsReportData data,
+  ) {
+    final name = data.engineer?.name ?? '—';
+    final initials = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part.substring(0, 1))
+        .join()
+        .toUpperCase();
+    final metadata = [
+      data.team,
+      data.jobTitle,
+    ].whereType<String>().where((e) => e.trim().isNotEmpty).join(' • ');
+    return Card(
+      color: AppColors.ink,
+      child: Padding(
+        padding: const EdgeInsets.all(17),
+        child: Column(
+          children: [
+            Row(
               children: [
-                Card(
-                  color: AppColors.ink,
-                  child: Padding(
-                    padding: const EdgeInsets.all(17),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: AppColors.orange,
-                              child: Text(
-                                MockData.engineer.initials,
-                                style: const TextStyle(
-                                  color: AppColors.ink,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 11),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    MockData.engineer.name,
-                                    style: AppTypography.section.copyWith(
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  Text(
-                                    '${MockData.teamName} • ${MockData.regionName}',
-                                    style: AppTypography.meta.copyWith(
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 26, color: Colors.white24),
-                        Row(
-                          children: [
-                            _DarkCounter(
-                              label: context.tr('Sites', 'المواقع'),
-                              value: sites.length,
-                            ),
-                            _DarkCounter(
-                              label: context.tr('Incidents', 'البلاغات'),
-                              value: incidentCount,
-                            ),
-                            _DarkCounter(
-                              label: context.tr('Requests', 'الطلبات'),
-                              value: requestCount,
-                            ),
-                          ],
-                        ),
-                      ],
+                CircleAvatar(
+                  backgroundColor: AppColors.orange,
+                  child: Text(
+                    initials,
+                    style: const TextStyle(
+                      color: AppColors.ink,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  context.tr('Worked Sites', 'المواقع التي تم العمل بها'),
-                  style: AppTypography.title,
-                ),
-                const SizedBox(height: 10),
-                ...sites.map(
-                  (site) => Padding(
-                    padding: const EdgeInsets.only(bottom: 11),
-                    child: _EngineerSiteCard(site: site),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: AppTypography.section.copyWith(
+                          color: Colors.white,
+                        ),
+                      ),
+                      if (metadata.isNotEmpty)
+                        Text(
+                          metadata,
+                          style: AppTypography.meta.copyWith(
+                            color: Colors.white70,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],
             ),
+            const Divider(height: 26, color: Colors.white24),
+            Row(
+              children: [
+                _DarkCounter(
+                  label: context.tr('Sites', 'المواقع'),
+                  value: data.locationsCount,
+                ),
+                _DarkCounter(
+                  label: context.tr('Incidents', 'البلاغات'),
+                  value: data.incidentsCount,
+                ),
+                _DarkCounter(
+                  label: context.tr('Requests', 'الطلبات'),
+                  value: data.requestsCount,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -999,14 +979,14 @@ class EngineerSitesReportScreen extends StatelessWidget {
 class _DarkCounter extends StatelessWidget {
   const _DarkCounter({required this.label, required this.value});
   final String label;
-  final int value;
+  final int? value;
 
   @override
   Widget build(BuildContext context) => Expanded(
     child: Column(
       children: [
         Text(
-          '$value',
+          value?.toString() ?? '—',
           style: AppTypography.title.copyWith(color: AppColors.orange),
         ),
         Text(
@@ -1022,7 +1002,7 @@ class _DarkCounter extends StatelessWidget {
 
 class _EngineerSiteCard extends StatelessWidget {
   const _EngineerSiteCard({required this.site});
-  final _EngineerSiteWork site;
+  final EngineerLocationReportItem site;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -1042,9 +1022,12 @@ class _EngineerSiteCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(site.tower.name, style: AppTypography.section),
                     Text(
-                      '${site.tower.code} • ${site.tower.region} / ${site.tower.area}',
+                      site.location?.name ?? '—',
+                      style: AppTypography.section,
+                    ),
+                    Text(
+                      '${site.location?.code ?? site.location?.id ?? '—'} • ${site.region?.name ?? '—'} / ${site.area?.name ?? '—'}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.meta.copyWith(
@@ -1063,14 +1046,14 @@ class _EngineerSiteCard extends StatelessWidget {
                 child: _SiteWorkMetric(
                   icon: Icons.assignment_outlined,
                   label: context.tr('Incidents', 'البلاغات'),
-                  value: site.incidents.length,
+                  value: site.incidentsCount,
                 ),
               ),
               Expanded(
                 child: _SiteWorkMetric(
                   icon: Icons.inbox_outlined,
                   label: context.tr('Requests', 'الطلبات'),
-                  value: site.requests.length,
+                  value: site.requestsCount,
                 ),
               ),
             ],
@@ -1082,7 +1065,7 @@ class _EngineerSiteCard extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(
                 child: Text(
-                  '${context.tr('Last activity', 'آخر نشاط')}: ${_shortDate(site.lastActivity)}',
+                  '${context.tr('Last activity', 'آخر نشاط')}: ${formatCapApiDate(site.lastActivityDate)}',
                   style: AppTypography.meta.copyWith(color: AppColors.muted),
                 ),
               ),
@@ -1102,7 +1085,7 @@ class _SiteWorkMetric extends StatelessWidget {
   });
   final IconData icon;
   final String label;
-  final int value;
+  final int? value;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -1110,7 +1093,11 @@ class _SiteWorkMetric extends StatelessWidget {
       Icon(icon, size: 19, color: AppColors.orange),
       const SizedBox(width: 7),
       Flexible(
-        child: Text('$label: $value', maxLines: 2, style: AppTypography.label),
+        child: Text(
+          '$label: ${value?.toString() ?? '—'}',
+          maxLines: 2,
+          style: AppTypography.label,
+        ),
       ),
     ],
   );

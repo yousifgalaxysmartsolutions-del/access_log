@@ -6,6 +6,10 @@ import 'package:access_log_plus/screens/requests/my_requests_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:access_log_plus/core/di/injection.dart';
+import 'package:access_log_plus/features/reports/presentation/bloc/engineer_locations_report_cubit.dart';
+import 'engineer_locations_report_test.dart'
+    show EngineerReportTestRepository, engineerReportTestCubit;
 
 void main() {
   Widget app(Widget home) => MaterialApp(
@@ -55,11 +59,17 @@ void main() {
   testWidgets('engineer sites report summarizes worked locations', (
     tester,
   ) async {
+    await services.reset();
+    addTearDown(services.reset);
+    services.registerFactory<EngineerLocationsReportCubit>(
+      () => engineerReportTestCubit(EngineerReportTestRepository()),
+    );
     await phone(tester);
     await tester.pumpWidget(app(const EngineerSitesReportScreen()));
+    await tester.pumpAndSettle();
 
     expect(find.text('Worked Sites'), findsOneWidget);
-    expect(find.text('Ahmed Mohamed'), findsOneWidget);
+    expect(find.text('engineer 1'), findsOneWidget);
     expect(find.byIcon(Icons.cell_tower), findsWidgets);
     expect(tester.takeException(), isNull);
   });
