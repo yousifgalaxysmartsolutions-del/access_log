@@ -11,6 +11,11 @@ import '../../features/incidents/domain/usecases/incident_execution_use_case.dar
 import '../../features/incidents/domain/repositories/incident_action_configuration_repository.dart';
 import '../../features/incidents/domain/usecases/get_incident_action_configuration_use_case.dart';
 import 'package:dio/dio.dart';
+import '../../features/reports/data/api/report_api_service.dart';
+import '../../features/reports/data/repositories/incident_report_repository_impl.dart';
+import '../../features/reports/domain/repositories/incident_report_repository.dart';
+import '../../features/reports/domain/usecases/incident_report_use_cases.dart';
+import '../../features/reports/presentation/bloc/incident_report_cubit.dart';
 import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
 import '../../features/incidents/data/incident_lookup_store.dart';
 import '../../features/incidents/domain/usecases/get_incident_lookup_use_case.dart';
@@ -270,6 +275,35 @@ void registerDashboardDependencies(
   }
 
   // Session-level lookup, independent from incident action configuration.
+  if (!services.isRegistered<DashboardApiService>()) {
+    services.registerLazySingleton<DashboardApiService>(
+      () => DashboardApiService(services<Dio>()),
+    );
+  }
+  services.registerLazySingleton<ReportApiService>(
+    () => ReportApiService(services<Dio>()),
+  );
+  services.registerLazySingleton<IncidentReportRepository>(
+    () => IncidentReportRepositoryImpl(
+      services<ReportApiService>(),
+      services<DashboardApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<GetIncidentReportUseCase>(
+    () => GetIncidentReportUseCase(services<IncidentReportRepository>()),
+  );
+  services.registerLazySingleton<GetReportLocationsUseCase>(
+    () => GetReportLocationsUseCase(services<IncidentReportRepository>()),
+  );
+  services.registerFactory<IncidentReportCubit>(
+    () => IncidentReportCubit(
+      getReport: services<GetIncidentReportUseCase>(),
+      getLocations: services<GetReportLocationsUseCase>(),
+      lookupStore: services<IncidentLookupStore>(),
+    ),
+  );
+
   services.registerLazySingleton<GetIncidentLookupUseCase>(
     () => GetIncidentLookupUseCase(services<IncidentRepository>()),
   );

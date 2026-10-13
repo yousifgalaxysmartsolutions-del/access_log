@@ -1,4 +1,8 @@
 import 'dart:math' as math;
+import '../../features/reports/data/models/incident_report_models.dart';
+import '../../features/incidents/data/mappers/incident_mapper.dart';
+import 'incident_report_screen.dart';
+export 'incident_report_screen.dart' show IncidentReportScreen;
 
 import 'package:flutter/material.dart';
 
@@ -130,13 +134,7 @@ class _ReportingScreenState extends State<ReportingScreen> {
   void _openIncidentReport({CapIncidentStatus? status}) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => IncidentReportScreen(
-          initialFilter: status == null
-              ? filter
-              : filter.copyWith(status: status),
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => const IncidentReportScreen()),
     );
   }
 
@@ -1183,207 +1181,6 @@ String _requestReportStatusLabel(
   MyRequestStatus.completed => context.tr('Completed', 'مكتمل'),
 };
 
-class IncidentReportScreen extends StatefulWidget {
-  const IncidentReportScreen({super.key, required this.initialFilter});
-
-  final ReportingFilter initialFilter;
-
-  @override
-  State<IncidentReportScreen> createState() => _IncidentReportScreenState();
-}
-
-class _IncidentReportScreenState extends State<IncidentReportScreen> {
-  late ReportingFilter filter = widget.initialFilter;
-  final search = TextEditingController();
-  ReportSort sort = ReportSort.newest;
-
-  @override
-  void dispose() {
-    search.dispose();
-    super.dispose();
-  }
-
-  List<CapIncident> get incidents {
-    final query = search.text.trim().toLowerCase();
-    final items = applyReportingFilter(MockData.capIncidents, filter)
-        .where(
-          (item) =>
-              query.isEmpty ||
-              [
-                item.number,
-                item.type,
-                item.siteName,
-                item.title,
-                item.currentUser,
-              ].any((value) => value.toLowerCase().contains(query)),
-        )
-        .toList();
-    switch (sort) {
-      case ReportSort.newest:
-        items.sort((a, b) => b.dateTime.compareTo(a.dateTime));
-      case ReportSort.oldest:
-        items.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-      case ReportSort.priority:
-        const rank = {
-          Priority.critical: 0,
-          Priority.high: 1,
-          Priority.medium: 2,
-          Priority.low: 3,
-        };
-        items.sort((a, b) => rank[a.priority]!.compareTo(rank[b.priority]!));
-    }
-    return items;
-  }
-
-  Future<void> _filters() async {
-    final result = await showModalBottomSheet<ReportingFilter>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ReportingFilterSheet(initial: filter),
-    );
-    if (result != null) setState(() => filter = result);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final items = incidents;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.tr('Incident Report', 'تقرير البلاغات')),
-        actions: [
-          IconButton(
-            tooltip: context.tr('Filters', 'الفلاتر'),
-            onPressed: _filters,
-            icon: const Icon(Icons.tune),
-          ),
-        ],
-      ),
-      body: CustomScrollView(
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
-            sliver: SliverList.list(
-              children: [
-                _ReportHeader(
-                  title: context.tr(
-                    'Incident Status Overview',
-                    'نظرة عامة على حالات البلاغات',
-                  ),
-                  range: _rangeLabel(context, filter),
-                  filter: filter,
-                ),
-                const SizedBox(height: 16),
-                _SummaryGrid(
-                  incidents: items,
-                  compact: true,
-                  onTap: (status) => setState(
-                    () => filter = status == null
-                        ? filter.copyWith(clearStatus: true)
-                        : filter.copyWith(status: status),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                StatusDonutCard(incidents: items),
-                const SizedBox(height: 14),
-                PriorityBarsCard(incidents: items),
-                const SizedBox(height: 18),
-                TextField(
-                  controller: search,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    hintText: context.tr(
-                      'Search report records',
-                      'ابحث في سجلات التقرير',
-                    ),
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: search.text.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: () {
-                              search.clear();
-                              setState(() {});
-                            },
-                            icon: const Icon(Icons.close),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        context.strings.isArabic
-                            ? '${items.length} سجلًا تفصيليًا'
-                            : '${items.length} detailed records',
-                        style: AppTypography.section,
-                      ),
-                    ),
-                    PopupMenuButton<ReportSort>(
-                      initialValue: sort,
-                      tooltip: context.tr('Sort', 'ترتيب'),
-                      onSelected: (value) => setState(() => sort = value),
-                      itemBuilder: (_) => [
-                        PopupMenuItem(
-                          value: ReportSort.newest,
-                          child: Text(context.tr('Newest', 'الأحدث')),
-                        ),
-                        PopupMenuItem(
-                          value: ReportSort.oldest,
-                          child: Text(context.tr('Oldest', 'الأقدم')),
-                        ),
-                        PopupMenuItem(
-                          value: ReportSort.priority,
-                          child: Text(context.tr('Priority', 'الأولوية')),
-                        ),
-                      ],
-                      icon: const Icon(Icons.sort),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (items.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: EmptyState(
-                icon: Icons.search_off,
-                title: context.tr(
-                  'No Reports Available',
-                  'لا توجد تقارير متاحة',
-                ),
-                description: context.tr(
-                  'No data found for the selected filters.',
-                  'لم يتم العثور على بيانات للفلاتر المحددة.',
-                ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 30),
-              sliver: SliverList.separated(
-                itemCount: items.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (_, index) => CapIncidentCard(
-                  incident: items[index],
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          IncidentDetailsScreen(incident: items[index]),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 enum _EngineerGroupBy { engineer, region, area, site }
 
 class EngineerActivityReportScreen extends StatefulWidget {
@@ -2165,22 +1962,45 @@ class _ReportingFilterSheetState extends State<ReportingFilterSheet> {
 }
 
 class StatusDonutCard extends StatelessWidget {
-  const StatusDonutCard({super.key, required this.incidents});
-
+  const StatusDonutCard({
+    super.key,
+    this.incidents = const [],
+    this.breakdown,
+    this.totalCount,
+  });
   final List<CapIncident> incidents;
-
+  final List<IncidentReportBreakdown>? breakdown;
+  final int? totalCount;
   @override
   Widget build(BuildContext context) {
-    final counts = {
-      for (final status in CapIncidentStatus.values)
-        status: incidents.where((item) => item.status == status).length,
-    };
+    final entries = breakdown == null
+        ? [
+            for (final status in CapIncidentStatus.values)
+              (
+                _statusLabel(context, status),
+                incidents.where((item) => item.status == status).length,
+                capStatusColor(status),
+              ),
+          ]
+        : [
+            for (final item in breakdown!)
+              (
+                item.info?.name ?? '—',
+                item.count,
+                capBackendStatusColor(
+                  item.info?.id,
+                  IncidentMapper.mapStatus(
+                    id: item.info?.id ?? -1,
+                    name: item.info?.name ?? '',
+                  ),
+                ),
+              ),
+          ];
     return SectionCard(
       title: context.tr('Incidents by Status', 'البلاغات حسب الحالة'),
       icon: Icons.donut_large,
       child: LayoutBuilder(
         builder: (_, constraints) {
-          final compact = constraints.maxWidth < 330;
           final chart = SizedBox(
             width: 132,
             height: 132,
@@ -2189,12 +2009,19 @@ class StatusDonutCard extends StatelessWidget {
               children: [
                 CustomPaint(
                   size: const Size.square(132),
-                  painter: _DonutPainter(counts),
+                  painter: _DonutPainter([
+                    for (final entry in entries) (entry.$2 ?? 0, entry.$3),
+                  ]),
                 ),
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('${incidents.length}', style: AppTypography.title),
+                    Text(
+                      breakdown == null
+                          ? '${incidents.length}'
+                          : totalCount?.toString() ?? '—',
+                      style: AppTypography.title,
+                    ),
                     Text(
                       context.tr('Total', 'الإجمالي'),
                       style: AppTypography.meta,
@@ -2205,32 +2032,27 @@ class StatusDonutCard extends StatelessWidget {
             ),
           );
           final legend = Column(
-            children: CapIncidentStatus.values
-                .map(
-                  (status) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.circle,
-                          size: 10,
-                          color: capStatusColor(status),
-                        ),
-                        const SizedBox(width: 7),
-                        Expanded(
-                          child: Text(
-                            _statusLabel(context, status),
-                            style: AppTypography.meta,
-                          ),
-                        ),
-                        Text('${counts[status]}', style: AppTypography.label),
-                      ],
-                    ),
+            children: [
+              for (final entry in entries)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Icon(Icons.circle, size: 10, color: entry.$3),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(entry.$1, style: AppTypography.meta),
+                      ),
+                      Text(
+                        entry.$2?.toString() ?? '—',
+                        style: AppTypography.label,
+                      ),
+                    ],
                   ),
-                )
-                .toList(),
+                ),
+            ],
           );
-          return compact
+          return constraints.maxWidth < 330
               ? Column(children: [chart, const SizedBox(height: 12), legend])
               : Row(
                   children: [
@@ -2246,74 +2068,102 @@ class StatusDonutCard extends StatelessWidget {
 }
 
 class PriorityBarsCard extends StatelessWidget {
-  const PriorityBarsCard({super.key, required this.incidents});
-
+  const PriorityBarsCard({
+    super.key,
+    this.incidents = const [],
+    this.breakdown,
+    this.totalCount,
+  });
   final List<CapIncident> incidents;
-
+  final List<IncidentReportBreakdown>? breakdown;
+  final int? totalCount;
   @override
   Widget build(BuildContext context) {
-    final maximum = math.max(1, incidents.length);
+    final maximum = math.max(
+      1,
+      breakdown == null ? incidents.length : totalCount ?? 0,
+    );
+    final entries = breakdown == null
+        ? [
+            for (final priority in Priority.values)
+              (
+                _priorityLabel(context, priority),
+                incidents.where((item) => item.priority == priority).length,
+                priorityColor(priority),
+              ),
+          ]
+        : [
+            for (final item in breakdown!)
+              (
+                item.info?.name ?? '—',
+                item.count,
+                priorityColor(
+                  IncidentMapper.mapPriority(
+                    id: item.info?.id ?? -1,
+                    name: item.info?.name ?? '',
+                  ),
+                ),
+              ),
+          ];
     return SectionCard(
       title: context.tr('Incidents by Priority', 'البلاغات حسب الأولوية'),
       icon: Icons.bar_chart,
       child: Column(
-        children: Priority.values.map((priority) {
-          final count = incidents
-              .where((item) => item.priority == priority)
-              .length;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 62,
-                  child: Text(
-                    _priorityLabel(context, priority),
-                    style: AppTypography.meta,
+        children: [
+          for (final entry in entries)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 62,
+                    child: Text(entry.$1, style: AppTypography.meta),
                   ),
-                ),
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(5),
-                    child: LinearProgressIndicator(
-                      value: count / maximum,
-                      minHeight: 9,
-                      color: priorityColor(priority),
-                      backgroundColor: priorityColor(
-                        priority,
-                      ).withValues(alpha: .1),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(5),
+                      child: LinearProgressIndicator(
+                        value: ((entry.$2 ?? 0) / maximum).clamp(0, 1),
+                        minHeight: 9,
+                        color: entry.$3,
+                        backgroundColor: entry.$3.withValues(alpha: .1),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  width: 20,
-                  child: Text('$count', style: AppTypography.label),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 20,
+                    child: Text(
+                      entry.$2?.toString() ?? '—',
+                      style: AppTypography.label,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          );
-        }).toList(),
+        ],
       ),
     );
   }
 }
 
 class _DonutPainter extends CustomPainter {
-  const _DonutPainter(this.counts);
-  final Map<CapIncidentStatus, int> counts;
-
+  const _DonutPainter(this.entries);
+  final List<(int, Color)> entries;
   @override
   void paint(Canvas canvas, Size size) {
-    final total = counts.values.fold<int>(0, (sum, value) => sum + value);
-    final rect = Offset.zero & size;
+    final total = entries.fold<int>(
+      0,
+      (sum, entry) => sum + math.max(0, entry.$1),
+    );
+    final rect = (Offset.zero & size).deflate(12);
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 18
       ..strokeCap = StrokeCap.butt;
     if (total == 0) {
       canvas.drawArc(
-        rect.deflate(12),
+        rect,
         0,
         math.pi * 2,
         false,
@@ -2322,34 +2172,55 @@ class _DonutPainter extends CustomPainter {
       return;
     }
     var start = -math.pi / 2;
-    for (final status in CapIncidentStatus.values) {
-      final sweep = math.pi * 2 * (counts[status]! / total);
+    for (final entry in entries) {
+      final sweep = math.pi * 2 * (math.max(0, entry.$1) / total);
       if (sweep > 0) {
-        canvas.drawArc(
-          rect.deflate(12),
-          start,
-          sweep,
-          false,
-          paint..color = capStatusColor(status),
-        );
+        canvas.drawArc(rect, start, sweep, false, paint..color = entry.$2);
         start += sweep;
       }
     }
   }
 
   @override
-  bool shouldRepaint(covariant _DonutPainter oldDelegate) =>
-      oldDelegate.counts != counts;
+  bool shouldRepaint(_DonutPainter oldDelegate) =>
+      oldDelegate.entries != entries;
+}
+
+/// Adapters for the original report visuals, shared by the CAP report.
+abstract final class IncidentReportVisuals {
+  static Widget header({
+    required String title,
+    required String range,
+    List<(IconData, String)> labels = const [],
+  }) => _ReportHeader(title: title, range: range, labels: labels);
+  static Widget metric({
+    required String label,
+    required int? value,
+    required IconData icon,
+    required Color color,
+    VoidCallback? onTap,
+  }) => _KpiCard(
+    label: label,
+    value: value,
+    icon: icon,
+    color: color,
+    compact: true,
+    onTap: onTap,
+  );
+  static Widget dateButton({
+    required String label,
+    required DateTime value,
+    required VoidCallback onTap,
+  }) => _DateButton(label: label, value: value, onTap: onTap);
+  static Widget range({
+    required ReportRange value,
+    required ValueChanged<ReportRange> onChanged,
+  }) => _RangeSelector(value: value, onChanged: onChanged);
 }
 
 class _SummaryGrid extends StatelessWidget {
-  const _SummaryGrid({
-    required this.incidents,
-    this.onTap,
-    this.compact = false,
-  });
+  const _SummaryGrid({required this.incidents, this.compact = false});
   final List<CapIncident> incidents;
-  final ValueChanged<CapIncidentStatus?>? onTap;
   final bool compact;
 
   @override
@@ -2422,7 +2293,7 @@ class _SummaryGrid extends StatelessWidget {
                     icon: item.$3,
                     color: item.$4,
                     compact: compact,
-                    onTap: onTap == null ? null : () => onTap!(item.$5),
+                    onTap: null,
                   ),
                 ),
               )
@@ -2443,7 +2314,7 @@ class _KpiCard extends StatelessWidget {
     this.compact = false,
   });
   final String label;
-  final int value;
+  final int? value;
   final IconData icon;
   final Color color;
   final VoidCallback? onTap;
@@ -2473,7 +2344,7 @@ class _KpiCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('$value', style: AppTypography.title),
+                  Text(value?.toString() ?? '—', style: AppTypography.title),
                   Text(
                     label,
                     maxLines: 2,
@@ -3023,10 +2894,12 @@ class _ReportHeader extends StatelessWidget {
   const _ReportHeader({
     required this.title,
     required this.range,
-    required this.filter,
+    this.filter,
+    this.labels = const [],
   });
   final String title, range;
-  final ReportingFilter filter;
+  final ReportingFilter? filter;
+  final List<(IconData, String)> labels;
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(16),
@@ -3045,20 +2918,22 @@ class _ReportHeader extends StatelessWidget {
           runSpacing: 7,
           children: [
             _FilterChip(icon: Icons.date_range, label: range),
-            if (filter.region != null)
+            for (final label in labels)
+              _FilterChip(icon: label.$1, label: label.$2),
+            if (filter?.region != null)
               _FilterChip(
                 icon: Icons.public,
-                label: context.mockText(filter.region!),
+                label: context.mockText(filter!.region!),
               ),
-            if (filter.status != null)
+            if (filter?.status != null)
               _FilterChip(
                 icon: Icons.tune,
-                label: _statusLabel(context, filter.status!),
+                label: _statusLabel(context, filter!.status!),
               ),
-            if (filter.priority != null)
+            if (filter?.priority != null)
               _FilterChip(
                 icon: Icons.flag_outlined,
-                label: _priorityLabel(context, filter.priority!),
+                label: _priorityLabel(context, filter!.priority!),
               ),
           ],
         ),
@@ -3084,7 +2959,7 @@ class _FilterChip extends StatelessWidget {
       children: [
         Icon(icon, size: 14, color: AppColors.orange),
         const SizedBox(width: 5),
-        Text(label, style: AppTypography.meta),
+        Flexible(child: Text(label, style: AppTypography.meta)),
       ],
     ),
   );

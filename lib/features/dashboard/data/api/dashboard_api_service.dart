@@ -20,4 +20,7 @@ abstract class DashboardApiService {
   Future<ApiResponse> getDashboardStats(
     @Body() CapRequest<DashboardStatsRequestData> body,
   );
+
+  @POST('CAP/CapDashboard/GetLocations')
+  Future<ApiResponse> getLocations(@Body() CapRequest<Null> body);
 }

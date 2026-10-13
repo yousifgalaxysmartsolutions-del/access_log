@@ -1,13 +1,19 @@
 import 'package:access_log_plus/core/theme/app_theme.dart';
 import 'package:access_log_plus/mock/mock_data.dart';
 import 'package:access_log_plus/models/models.dart';
-import 'package:access_log_plus/screens/incidents/incident_details_screen.dart';
 import 'package:access_log_plus/screens/reporting/reporting_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:access_log_plus/core/di/injection.dart';
+import 'incident_report_test.dart' show registerReportTestCubit;
 
 void main() {
+  setUp(() async {
+    await services.reset();
+    registerReportTestCubit();
+  });
+  tearDown(() => services.reset());
   Widget app(Widget home, {Locale locale = const Locale('en')}) => MaterialApp(
     locale: locale,
     supportedLocales: const [Locale('en'), Locale('ar')],
@@ -87,29 +93,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('KPI and report records deep-link to details', (tester) async {
+  testWidgets('incident report renders API summaries and real report records', (
+    tester,
+  ) async {
     await phone(tester);
-    await tester.pumpWidget(
-      app(
-        const IncidentReportScreen(
-          initialFilter: ReportingFilter(range: ReportRange.month),
-        ),
-      ),
-    );
+    await tester.pumpWidget(app(const IncidentReportScreen()));
 
-    await tester.ensureVisible(find.text('Completed').first);
-    await tester.tap(find.text('Completed').first);
     await tester.pumpAndSettle();
-    expect(find.textContaining('detailed records'), findsOneWidget);
 
     await tester.scrollUntilVisible(
-      find.text('INC-2026-1005'),
+      find.text('INC-SEED-D10739-04'),
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('INC-2026-1005'));
-    await tester.pumpAndSettle();
-    expect(find.byType(IncidentDetailsScreen), findsOneWidget);
+    expect(find.text('Test Incident - D10739'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -146,12 +143,7 @@ void main() {
     (tester) async {
       await phone(tester);
       await tester.pumpWidget(
-        app(
-          const IncidentReportScreen(
-            initialFilter: ReportingFilter(range: ReportRange.month),
-          ),
-          locale: const Locale('ar'),
-        ),
+        app(const IncidentReportScreen(), locale: const Locale('ar')),
       );
 
       expect(find.text('تقرير البلاغات'), findsOneWidget);
@@ -164,10 +156,9 @@ void main() {
       await tester.tap(find.byTooltip('الفلاتر'));
       await tester.pumpAndSettle();
       expect(find.text('فلاتر التقارير'), findsOneWidget);
-      expect(find.text('من تاريخ'), findsNothing);
       await tester.tap(find.text('مخصص').last);
       await tester.pumpAndSettle();
-      expect(find.text('من تاريخ'), findsOneWidget);
+      expect(find.text('1/10/2026'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
