@@ -1,47 +1,51 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../core/localization/app_strings.dart';
-import '../../core/localization/mock_content_localization.dart';
+import '../../core/di/injection.dart';
+import '../../features/incidents/presentation/bloc/incident_map_cubit.dart';
 import '../../core/theme/app_tokens.dart';
-import '../../mock/mock_data.dart';
 import '../../models/models.dart';
 import '../../widgets/cap_incident_card.dart';
 import '../../widgets/empty_state.dart';
 import '../incidents/incident_details_screen.dart';
-import '../requests/my_requests_screen.dart';
+import '../requests/api_request_details_screen.dart';
 
-class TowerMapScreen extends StatefulWidget {
+class TowerMapScreen extends StatelessWidget {
   const TowerMapScreen({super.key, this.enableTiles = true});
 
   /// Disabled by widget tests only. Production uses live OpenStreetMap tiles.
   final bool enableTiles;
 
   @override
-  State<TowerMapScreen> createState() => _TowerMapScreenState();
+  Widget build(BuildContext context) => BlocProvider(
+    create: (_) => services<IncidentMapCubit>()..refresh(),
+    child: _TowerMapView(enableTiles: enableTiles),
+  );
 }
 
-class _TowerMapScreenState extends State<TowerMapScreen> {
+class _TowerMapView extends StatefulWidget {
+  const _TowerMapView({required this.enableTiles});
+  final bool enableTiles;
+  @override
+  State<_TowerMapView> createState() => _TowerMapScreenState();
+}
+
+class _TowerMapScreenState extends State<_TowerMapView> {
   final mapController = MapController();
   final searchController = TextEditingController();
   bool listMode = false;
   TowerSite? selected;
 
   List<TowerSite> get towers {
-    final query = searchController.text.trim().toLowerCase();
-    if (query.isEmpty) return MockData.towerSites;
-    return MockData.towerSites
-        .where(
-          (tower) => [
-            tower.name,
-            tower.code,
-            tower.region,
-            tower.area,
-          ].any((value) => value.toLowerCase().contains(query)),
-        )
+    return context
+        .read<IncidentMapCubit>()
+        .visibleSites
+        .map((e) => e.tower)
         .toList();
   }
 
@@ -52,13 +56,12 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
     super.dispose();
   }
 
-  List<CapIncident> _incidents(TowerSite tower) => MockData.capIncidents
-      .where((incident) => incident.siteCode == tower.code)
-      .toList();
-
-  List<MyRequest> _requests(TowerSite tower) => MockData.myRequests
-      .where((request) => request.siteCode == tower.code)
-      .toList();
+  IncidentMapSite _site(TowerSite tower) => context
+      .read<IncidentMapCubit>()
+      .state
+      .sites
+      .firstWhere((e) => identical(e.tower, tower));
+  List<CapIncident> _incidents(TowerSite tower) => _site(tower).incidents;
 
   void _selectTower(TowerSite tower) {
     setState(() => selected = tower);
@@ -70,7 +73,8 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
 
   Future<void> _showTowerPreview(TowerSite tower) async {
     final incidents = _incidents(tower);
-    final requests = _requests(tower);
+    final cubit = context.read<IncidentMapCubit>();
+    final site = _site(tower);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -79,13 +83,15 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
       builder: (_) => _TowerPreviewSheet(
         tower: tower,
         incidents: incidents,
-        requests: requests,
         onViewAll: () {
           Navigator.pop(context);
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => TowerRequestsScreen(tower: tower),
+              builder: (_) => BlocProvider.value(
+                value: cubit,
+                child: TowerRequestsScreen(site: site),
+              ),
             ),
           );
         },
@@ -103,22 +109,96 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(context.tr('Tower Map', 'خريطة الأبراج')),
-      actions: [
-        IconButton(
-          tooltip: listMode
-              ? context.tr('Map view', 'عرض الخريطة')
-              : context.tr('List view', 'عرض القائمة'),
-          onPressed: () => setState(() => listMode = !listMode),
-          icon: Icon(listMode ? Icons.map_outlined : Icons.view_list_outlined),
-        ),
-        const SizedBox(width: 6),
-      ],
+  Widget build(
+    BuildContext context,
+  ) => BlocBuilder<IncidentMapCubit, IncidentMapState>(
+    builder: (context, state) => Scaffold(
+      appBar: AppBar(
+        title: Text(context.tr('Tower Map', 'خريطة الأبراج')),
+        actions: [
+          IconButton(
+            tooltip: context.tr('Refresh', 'تحديث'),
+            onPressed: () => context.read<IncidentMapCubit>().refresh(),
+            icon: const Icon(Icons.refresh),
+          ),
+          IconButton(
+            tooltip: listMode
+                ? context.tr('Map view', 'عرض الخريطة')
+                : context.tr('List view', 'عرض القائمة'),
+            onPressed: () => setState(() => listMode = !listMode),
+            icon: Icon(
+              listMode ? Icons.map_outlined : Icons.view_list_outlined,
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+      body: SafeArea(
+        child: state.loading
+            ? const Center(child: CircularProgressIndicator())
+            : state.failure != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(state.failure!.message, textAlign: TextAlign.center),
+                      TextButton(
+                        onPressed: () =>
+                            context.read<IncidentMapCubit>().refresh(),
+                        child: Text(context.tr('Retry', 'إعادة المحاولة')),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : Column(
+                children: [
+                  if (state.missingCoordinates > 0)
+                    Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text(
+                        context.tr(
+                          '${state.missingCoordinates} incidents have no valid coordinates and are not shown on the map.',
+                          '${state.missingCoordinates} بلاغات بدون إحداثيات صالحة لا تظهر على الخريطة.',
+                        ),
+                      ),
+                    ),
+                  Expanded(
+                    child: state.sites.isEmpty
+                        ? EmptyState(
+                            icon: Icons.map_outlined,
+                            title: context.tr(
+                              'No mapped incidents today',
+                              'لا توجد بلاغات بإحداثيات اليوم',
+                            ),
+                            description: context.tr(
+                              'Today’s incidents with valid site coordinates will appear here.',
+                              'ستظهر هنا بلاغات اليوم التي تحتوي على إحداثيات مواقع صالحة.',
+                            ),
+                          )
+                        : listMode
+                        ? _buildList()
+                        : _buildMap(),
+                  ),
+                ],
+              ),
+      ),
     ),
-    body: listMode ? _buildList() : _buildMap(),
   );
+
+  void _fitSites() {
+    final points = towers.map((e) => LatLng(e.latitude, e.longitude)).toList();
+    if (points.isEmpty) return;
+    mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(points),
+        padding: const EdgeInsets.fromLTRB(55, 100, 55, 100),
+        maxZoom: 13.5,
+      ),
+    );
+  }
 
   Widget _buildMap() => Stack(
     children: [
@@ -126,8 +206,18 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
         color: const Color(0xFFE9ECE8),
         child: FlutterMap(
           mapController: mapController,
-          options: const MapOptions(
-            initialCenter: LatLng(30.0444, 31.2357),
+          options: MapOptions(
+            initialCenter: LatLng(
+              context.read<IncidentMapCubit>().state.sites.first.tower.latitude,
+              context
+                  .read<IncidentMapCubit>()
+                  .state
+                  .sites
+                  .first
+                  .tower
+                  .longitude,
+            ),
+            onMapReady: _fitSites,
             initialZoom: 10.2,
             minZoom: 5,
             maxZoom: 18,
@@ -153,7 +243,7 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
                       child: _TowerMarker(
                         tower: tower,
                         incidentCount: _incidents(tower).length,
-                        selected: selected?.code == tower.code,
+                        selected: identical(selected, tower),
                         onTap: () => _selectTower(tower),
                       ),
                     ),
@@ -177,10 +267,11 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
         child: _MapSearchBar(
           controller: searchController,
           count: towers.length,
-          onChanged: () => setState(() {}),
+          onChanged: () =>
+              context.read<IncidentMapCubit>().search(searchController.text),
           onClear: () {
             searchController.clear();
-            setState(() {});
+            context.read<IncidentMapCubit>().search('');
           },
         ),
       ),
@@ -210,8 +301,7 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
             _MapControl(
               tooltip: context.tr('Reset map', 'إعادة ضبط الخريطة'),
               icon: Icons.my_location,
-              onTap: () =>
-                  mapController.move(const LatLng(30.0444, 31.2357), 10.2),
+              onTap: _fitSites,
             ),
           ],
         ),
@@ -233,10 +323,11 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
           child: _MapSearchBar(
             controller: searchController,
             count: items.length,
-            onChanged: () => setState(() {}),
+            onChanged: () =>
+                context.read<IncidentMapCubit>().search(searchController.text),
             onClear: () {
               searchController.clear();
-              setState(() {});
+              context.read<IncidentMapCubit>().search('');
             },
           ),
         ),
@@ -259,7 +350,6 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
                     return _TowerListCard(
                       tower: tower,
                       incidents: _incidents(tower),
-                      requests: _requests(tower),
                       onTap: () => _selectTower(tower),
                     );
                   },
@@ -270,114 +360,165 @@ class _TowerMapScreenState extends State<TowerMapScreen> {
   }
 }
 
-class TowerRequestsScreen extends StatelessWidget {
-  const TowerRequestsScreen({super.key, required this.tower});
-  final TowerSite tower;
+class TowerRequestsScreen extends StatefulWidget {
+  const TowerRequestsScreen({super.key, required this.site});
+  final IncidentMapSite site;
+  @override
+  State<TowerRequestsScreen> createState() => _TowerRequestsScreenState();
+}
+
+class _TowerRequestsScreenState extends State<TowerRequestsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    context.read<IncidentMapCubit>().loadRequests(widget.site);
+  }
 
   @override
-  Widget build(BuildContext context) {
-    final incidents = MockData.capIncidents
-        .where((incident) => incident.siteCode == tower.code)
-        .toList();
-    final requests = MockData.myRequests
-        .where((request) => request.siteCode == tower.code)
-        .toList();
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(context.tr('Tower Requests', 'طلبات البرج')),
-          bottom: TabBar(
-            tabs: [
-              Tab(
-                text: context.strings.isArabic
-                    ? 'البلاغات (${incidents.length})'
-                    : 'Incidents (${incidents.length})',
+  Widget build(
+    BuildContext context,
+  ) => BlocBuilder<IncidentMapCubit, IncidentMapState>(
+    builder: (context, state) {
+      final incidents = widget.site.incidents;
+      return DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(context.tr('Tower Requests', 'طلبات البرج')),
+            bottom: TabBar(
+              tabs: [
+                Tab(
+                  text: context.tr(
+                    'Incidents (${incidents.length})',
+                    'البلاغات (${incidents.length})',
+                  ),
+                ),
+                Tab(
+                  text: context.tr(
+                    'Requests (${state.requestsLoading
+                        ? '…'
+                        : state.requestsFailure != null
+                        ? '!'
+                        : state.requests.length})',
+                    'الطلبات (${state.requestsLoading
+                        ? '…'
+                        : state.requestsFailure != null
+                        ? '!'
+                        : state.requests.length})',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          body: Column(
+            children: [
+              _TowerHero(
+                tower: widget.site.tower,
+                incidentCount: incidents.length,
+                requestCount:
+                    state.requestsLoading || state.requestsFailure != null
+                    ? null
+                    : state.requests.length,
               ),
-              Tab(
-                text: context.strings.isArabic
-                    ? 'الطلبات (${requests.length})'
-                    : 'Requests (${requests.length})',
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                      itemCount: incidents.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (_, index) => CapIncidentCard(
+                        incident: incidents[index],
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => IncidentDetailsScreen(
+                              incident: incidents[index],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    state.requestsLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : state.requestsFailure != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    state.requestsFailure!.message,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  TextButton(
+                                    onPressed: () => context
+                                        .read<IncidentMapCubit>()
+                                        .loadRequests(widget.site),
+                                    child: Text(
+                                      context.tr('Retry', 'إعادة المحاولة'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : state.requests.isEmpty
+                        ? EmptyState(
+                            icon: Icons.inbox_outlined,
+                            title: context.tr(
+                              'No requests at this tower',
+                              'لا توجد طلبات لهذا البرج',
+                            ),
+                            description: context.tr(
+                              'No requests returned for these incidents.',
+                              'لم ترجع طلبات مرتبطة بهذه البلاغات.',
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                            itemCount: state.requests.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (_, index) {
+                              final request = state.requests[index];
+                              return Card(
+                                child: ListTile(
+                                  leading: const Icon(Icons.inbox_outlined),
+                                  title: Text(
+                                    context.tr(
+                                      'Request #${request.id ?? '—'}',
+                                      'طلب #${request.id ?? '—'}',
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    '${request.requestType?.name ?? '—'} • ${request.requestStatus?.name ?? '—'}',
+                                  ),
+                                  onTap: request.id == null || request.id! <= 0
+                                      ? null
+                                      : () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                ApiRequestDetailsScreen(
+                                                  requestId: request.id!,
+                                                ),
+                                          ),
+                                        ),
+                                ),
+                              );
+                            },
+                          ),
+                  ],
+                ),
               ),
             ],
           ),
         ),
-        body: Column(
-          children: [
-            _TowerHero(
-              tower: tower,
-              incidentCount: incidents.length,
-              requestCount: requests.length,
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  incidents.isEmpty
-                      ? EmptyState(
-                          icon: Icons.assignment_outlined,
-                          title: context.tr(
-                            'No incidents at this tower',
-                            'لا توجد بلاغات لهذا البرج',
-                          ),
-                          description: context.tr(
-                            'There are no local mock incidents for this site.',
-                            'لا توجد بلاغات تجريبية محلية لهذا الموقع.',
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-                          itemCount: incidents.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (_, index) => CapIncidentCard(
-                            incident: incidents[index],
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => IncidentDetailsScreen(
-                                  incident: incidents[index],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                  requests.isEmpty
-                      ? EmptyState(
-                          icon: Icons.inbox_outlined,
-                          title: context.tr(
-                            'No requests at this tower',
-                            'لا توجد طلبات لهذا البرج',
-                          ),
-                          description: context.tr(
-                            'Intervention, renewal, and departure requests will appear here.',
-                            'ستظهر هنا طلبات التدخل والتجديد والمغادرة.',
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-                          itemCount: requests.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (_, index) => _TowerRequestCard(
-                            request: requests[index],
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => RequestDetailsScreen(
-                                  request: requests[index],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      );
+    },
+  );
 }
 
 class _TowerMarker extends StatelessWidget {
@@ -394,7 +535,9 @@ class _TowerMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-    key: ValueKey('tower-${tower.code}'),
+    key: ValueKey(
+      'tower-${tower.code.isNotEmpty ? tower.code : '${tower.latitude},${tower.longitude}'}',
+    ),
     button: true,
     label: context.strings.isArabic
         ? '${tower.name}، $incidentCount بلاغات'
@@ -584,13 +727,11 @@ class _TowerPreviewSheet extends StatelessWidget {
   const _TowerPreviewSheet({
     required this.tower,
     required this.incidents,
-    required this.requests,
     required this.onViewAll,
     required this.onIncident,
   });
   final TowerSite tower;
   final List<CapIncident> incidents;
-  final List<MyRequest> requests;
   final VoidCallback onViewAll;
   final ValueChanged<CapIncident> onIncident;
 
@@ -624,7 +765,6 @@ class _TowerPreviewSheet extends StatelessWidget {
             _TowerHero(
               tower: tower,
               incidentCount: incidents.length,
-              requestCount: requests.length,
               compact: true,
             ),
             const SizedBox(height: 16),
@@ -673,7 +813,7 @@ class _TowerPreviewSheet extends StatelessWidget {
                         ),
                       ),
                       subtitle: Text(
-                        context.mockText(incident.title),
+                        incident.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -702,11 +842,12 @@ class _TowerHero extends StatelessWidget {
   const _TowerHero({
     required this.tower,
     required this.incidentCount,
-    required this.requestCount,
+    this.requestCount,
     this.compact = false,
   });
   final TowerSite tower;
-  final int incidentCount, requestCount;
+  final int incidentCount;
+  final int? requestCount;
   final bool compact;
 
   @override
@@ -738,14 +879,14 @@ class _TowerHero extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                context.mockText(tower.name),
+                tower.name,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.section.copyWith(color: Colors.white),
               ),
               const SizedBox(height: 3),
               Text(
-                '${tower.code} • ${context.mockText(tower.region)} / ${context.mockText(tower.area)}',
+                '${tower.code} • ${tower.region} / ${tower.area}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.meta.copyWith(color: Colors.white60),
@@ -759,10 +900,11 @@ class _TowerHero extends StatelessWidget {
                     label: context.tr('Incidents', 'البلاغات'),
                     count: incidentCount,
                   ),
-                  _DarkCount(
-                    label: context.tr('Requests', 'الطلبات'),
-                    count: requestCount,
-                  ),
+                  if (requestCount != null)
+                    _DarkCount(
+                      label: context.tr('Requests', 'الطلبات'),
+                      count: requestCount!,
+                    ),
                 ],
               ),
             ],
@@ -795,12 +937,10 @@ class _TowerListCard extends StatelessWidget {
   const _TowerListCard({
     required this.tower,
     required this.incidents,
-    required this.requests,
     required this.onTap,
   });
   final TowerSite tower;
   final List<CapIncident> incidents;
-  final List<MyRequest> requests;
   final VoidCallback onTap;
 
   @override
@@ -812,9 +952,9 @@ class _TowerListCard extends StatelessWidget {
         backgroundColor: Color(0xFFFFE9D5),
         child: Icon(Icons.cell_tower, color: AppColors.orangeDark),
       ),
-      title: Text(context.mockText(tower.name), style: AppTypography.section),
+      title: Text(tower.name, style: AppTypography.section),
       subtitle: Text(
-        '${tower.code}\n${context.mockText(tower.region)} • ${context.mockText(tower.area)}',
+        '${tower.code}\n${tower.region} • ${tower.area}',
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: AppTypography.meta.copyWith(color: AppColors.muted),
@@ -823,61 +963,12 @@ class _TowerListCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            '${incidents.length + requests.length}',
+            '${incidents.length}',
             style: AppTypography.title.copyWith(color: AppColors.orangeDark),
           ),
-          Text(context.tr('items', 'عنصر'), style: AppTypography.meta),
+          Text(context.tr('Incidents', 'البلاغات'), style: AppTypography.meta),
         ],
       ),
     ),
   );
 }
-
-class _TowerRequestCard extends StatelessWidget {
-  const _TowerRequestCard({required this.request, required this.onTap});
-  final MyRequest request;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: ListTile(
-      onTap: onTap,
-      minTileHeight: 82,
-      leading: CircleAvatar(
-        backgroundColor: AppColors.orange.withValues(alpha: .1),
-        child: Icon(_requestIcon(request.type), color: AppColors.orangeDark),
-      ),
-      title: Text(
-        request.number,
-        style: AppTypography.label.copyWith(color: AppColors.orangeDark),
-      ),
-      subtitle: Text(
-        '${_requestType(context, request.type)} • ${_requestStatus(context, request.status)}',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: const Icon(Icons.chevron_right),
-    ),
-  );
-}
-
-IconData _requestIcon(RelatedRequestType type) => switch (type) {
-  RelatedRequestType.intervention => Icons.engineering_outlined,
-  RelatedRequestType.renewal => Icons.autorenew,
-  RelatedRequestType.departure => Icons.logout,
-};
-
-String _requestType(BuildContext context, RelatedRequestType type) =>
-    switch (type) {
-      RelatedRequestType.intervention => context.tr('Intervention', 'تدخل'),
-      RelatedRequestType.renewal => context.tr('Renewal', 'تجديد'),
-      RelatedRequestType.departure => context.tr('Departure', 'مغادرة'),
-    };
-
-String _requestStatus(BuildContext context, MyRequestStatus status) =>
-    switch (status) {
-      MyRequestStatus.pending => context.tr('Pending', 'قيد الانتظار'),
-      MyRequestStatus.approved => context.tr('Approved', 'مقبول'),
-      MyRequestStatus.rejected => context.tr('Rejected', 'مرفوض'),
-      MyRequestStatus.completed => context.tr('Completed', 'مكتمل'),
-    };

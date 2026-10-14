@@ -11,6 +11,11 @@ import '../../features/incidents/domain/usecases/incident_execution_use_case.dar
 import '../../features/incidents/domain/repositories/incident_action_configuration_repository.dart';
 import '../../features/incidents/domain/usecases/get_incident_action_configuration_use_case.dart';
 import 'package:dio/dio.dart';
+import '../../features/incidents/presentation/bloc/incident_map_cubit.dart';
+import '../../features/reports/data/repositories/requests_path_report_repository_impl.dart';
+import '../../features/reports/domain/repositories/requests_path_report_repository.dart';
+import '../../features/reports/domain/usecases/get_requests_path_report_use_case.dart';
+import '../../features/reports/presentation/bloc/requests_path_report_cubit.dart';
 import '../../features/reports/data/repositories/engineer_locations_report_repository_impl.dart';
 import '../../features/reports/domain/repositories/engineer_locations_report_repository.dart';
 import '../../features/reports/domain/usecases/get_engineer_locations_report_use_case.dart';
@@ -287,6 +292,23 @@ void registerDashboardDependencies(
   services.registerLazySingleton<ReportApiService>(
     () => ReportApiService(services<Dio>()),
   );
+  services.registerLazySingleton<RequestsPathReportRepository>(
+    () => RequestsPathReportRepositoryImpl(
+      services<ReportApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<GetRequestsPathReportUseCase>(
+    () =>
+        GetRequestsPathReportUseCase(services<RequestsPathReportRepository>()),
+  );
+  services.registerFactory<RequestsPathReportCubit>(
+    () => RequestsPathReportCubit(
+      getReport: services<GetRequestsPathReportUseCase>(),
+      getLookup: services<GetRequestLookupUseCase>(),
+      getLocations: services<GetReportLocationsUseCase>(),
+    ),
+  );
   services.registerLazySingleton<IncidentReportRepository>(
     () => IncidentReportRepositoryImpl(
       services<ReportApiService>(),
@@ -360,6 +382,12 @@ void registerDashboardDependencies(
     () => DashboardBloc(
       getDashboardStats: services<GetDashboardStatsUseCase>(),
       getIncidentList: services<GetIncidentListUseCase>(),
+    ),
+  );
+  services.registerFactory<IncidentMapCubit>(
+    () => IncidentMapCubit(
+      getIncidents: services<GetIncidentListUseCase>(),
+      getRequests: services<GetIncidentRequestsUseCase>(),
     ),
   );
   // Screen-scoped, so each details screen gets its own bloc.

@@ -172,6 +172,8 @@ class CapIncident {
     this.backendStatusId,
     this.backendStatusName,
     this.backendPriorityName,
+    this.latitude,
+    this.longitude,
     this.hasRealDate = true,
     this.needsApproval = false,
     this.description =
@@ -185,6 +187,7 @@ class CapIncident {
   final int? backendStatusId;
   final String? backendStatusName;
   final String? backendPriorityName;
+  final double? latitude, longitude;
   String get displayStatus => backendStatusName ?? status.label;
   String get displayPriority => backendPriorityName ?? priority.name;
   final bool hasRealDate;

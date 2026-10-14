@@ -64,6 +64,8 @@ final _payload = <String, dynamic>{
     'Data': [
       {
         'incidentId': 9001,
+        'latitude': 31.34573068640783,
+        'longitude': 30.056509692385522,
         'incidentNo': 'INC-3001',
         'description': 'Fiber degradation on primary link',
         'locationName': 'Site Riyadh 12',
@@ -241,6 +243,9 @@ void main() {
     expect(first.siteName, 'Site Riyadh 12');
     expect(first.status, CapIncidentStatus.pending);
     expect(first.priority, Priority.high);
+    expect(first.latitude, 31.34573068640783);
+    expect(first.longitude, 30.056509692385522);
+    expect(incidents[1].latitude, isNull);
 
     expect(incidents[1].status, CapIncidentStatus.inProcess);
     expect(incidents[1].priority, Priority.medium);

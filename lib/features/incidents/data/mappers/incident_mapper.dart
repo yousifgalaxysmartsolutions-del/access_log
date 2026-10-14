@@ -24,6 +24,8 @@ abstract final class IncidentMapper {
       backendStatusId: item.statusId,
       backendStatusName: item.statusName,
       backendPriorityName: item.priorityName,
+      latitude: item.latitude,
+      longitude: item.longitude,
       number: item.incidentNo,
       type: item.incidentType,
       siteName: item.locationName,

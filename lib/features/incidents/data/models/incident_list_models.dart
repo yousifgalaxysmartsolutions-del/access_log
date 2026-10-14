@@ -138,6 +138,8 @@ class IncidentListItem {
     required this.priorityId,
     this.occurredAt,
     this.locationCode = '',
+    this.latitude,
+    this.longitude,
   });
 
   final int incidentId;
@@ -156,6 +158,7 @@ class IncidentListItem {
 
   /// Creation date returned by CAP, without changing its timezone.
   final DateTime? occurredAt;
+  final double? latitude, longitude;
 
   factory IncidentListItem.fromJson(
     Map<String, dynamic> json,
@@ -179,6 +182,8 @@ class IncidentListItem {
     ]),
     priorityId: capCount(capMap(json['priority'])['id']),
     occurredAt: _readOccurredAt(json),
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
   );
 
   static const _dateKeys = [

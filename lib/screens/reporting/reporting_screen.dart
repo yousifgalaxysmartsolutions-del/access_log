@@ -1,4 +1,8 @@
 import 'dart:math' as math;
+import '../../features/reports/data/models/requests_path_report_models.dart';
+import 'request_flow_report_screen.dart';
+export 'request_flow_report_screen.dart' show RequestFlowReportScreen;
+import '../requests/api_request_details_screen.dart';
 import '../../features/reports/data/models/engineer_locations_report_models.dart';
 import 'engineer_sites_report_screen.dart';
 export 'engineer_sites_report_screen.dart' show EngineerSitesReportScreen;
@@ -19,7 +23,6 @@ import '../../widgets/cap_incident_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/section_card.dart';
 import '../incidents/incident_details_screen.dart';
-import '../requests/my_requests_screen.dart';
 
 enum ReportRange { today, week, month, custom }
 
@@ -302,148 +305,22 @@ class _ReportingScreenState extends State<ReportingScreen> {
   }
 }
 
-class _RequestReportFilter {
-  const _RequestReportFilter({
-    this.range = ReportRange.month,
-    this.from,
-    this.to,
-    this.type,
-    this.status,
-    this.createdBy,
-    this.incidentNumber,
-    this.site,
-  });
-
-  final ReportRange range;
-  final DateTime? from, to;
-  final RelatedRequestType? type;
-  final MyRequestStatus? status;
-  final String? createdBy, incidentNumber, site;
-
-  bool get active =>
-      range != ReportRange.month ||
-      from != null ||
-      to != null ||
-      type != null ||
-      status != null ||
-      createdBy != null ||
-      incidentNumber != null ||
-      site != null;
-}
-
-class RequestFlowReportScreen extends StatefulWidget {
-  const RequestFlowReportScreen({super.key});
-
-  @override
-  State<RequestFlowReportScreen> createState() =>
-      _RequestFlowReportScreenState();
-}
-
-class _RequestFlowReportScreenState extends State<RequestFlowReportScreen> {
-  _RequestReportFilter filter = const _RequestReportFilter();
-
-  List<MyRequest> get requests {
-    DateTime? start;
-    DateTime? end = DateTime(2026, 8, 10, 23, 59, 59);
-    switch (filter.range) {
-      case ReportRange.today:
-        start = DateTime(2026, 8, 10);
-      case ReportRange.week:
-        start = DateTime(2026, 8, 4);
-      case ReportRange.month:
-        start = DateTime(2026, 8, 1);
-      case ReportRange.custom:
-        start = filter.from;
-        end = filter.to?.add(const Duration(days: 1));
-    }
-    final items = MockData.myRequests.where((request) {
-      bool match(Object value, Object? expected) =>
-          expected == null || value == expected;
-      return (start == null || !request.createdDate.isBefore(start)) &&
-          (end == null || request.createdDate.isBefore(end)) &&
-          match(request.type, filter.type) &&
-          match(request.status, filter.status) &&
-          match(request.createdBy, filter.createdBy) &&
-          match(request.incidentNumber, filter.incidentNumber) &&
-          match(request.siteName, filter.site);
-    }).toList()..sort((a, b) => b.createdDate.compareTo(a.createdDate));
-    return items;
-  }
-
-  Future<void> _openFilters() async {
-    final result = await showModalBottomSheet<_RequestReportFilter>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _RequestReportFilterSheet(initial: filter),
-    );
-    if (result != null && mounted) setState(() => filter = result);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final items = requests;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.tr('Request Flow Report', 'تقرير مسار الطلبات')),
-        actions: [
-          IconButton(
-            tooltip: context.tr('Request Filters', 'فلاتر الطلبات'),
-            onPressed: _openFilters,
-            icon: Badge(
-              isLabelVisible: filter.active,
-              backgroundColor: AppColors.orange,
-              smallSize: 9,
-              child: const Icon(Icons.tune_rounded),
-            ),
-          ),
-        ],
-      ),
-      body: items.isEmpty
-          ? EmptyState(
-              icon: Icons.account_tree_outlined,
-              title: context.tr('No Requests Available', 'لا توجد طلبات'),
-              description: context.tr(
-                'No requests match the selected filters.',
-                'لا توجد طلبات تطابق الفلاتر المحددة.',
-              ),
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
-              children: [
-                if (filter.active) ...[
-                  _ActiveReportFilterBanner(
-                    count: items.length,
-                    onReset: () =>
-                        setState(() => filter = const _RequestReportFilter()),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                _RequestStatusSummary(requests: items),
-                const SizedBox(height: 18),
-                Text(
-                  context.tr('Request Lifecycles', 'مسارات الطلبات'),
-                  style: AppTypography.title,
-                ),
-                const SizedBox(height: 10),
-                ...items.map(
-                  (request) => Padding(
-                    padding: const EdgeInsets.only(bottom: 11),
-                    child: _RequestFlowCard(request: request),
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
+/// Bindings for the original request report cards and active-filter banner.
+abstract final class RequestsPathReportVisuals {
+  static Widget summary(RequestsPathReportSummary? summary) =>
+      _RequestStatusSummary(summary: summary);
+  static Widget card(RequestsPathReportItem item, {String? statusCode}) =>
+      _RequestFlowCard(request: item, statusCode: statusCode);
+  static Widget activeFilters({
+    required int count,
+    required VoidCallback onReset,
+  }) => _ActiveReportFilterBanner(count: count, onReset: onReset);
 }
 
 class _ActiveReportFilterBanner extends StatelessWidget {
   const _ActiveReportFilterBanner({required this.count, required this.onReset});
   final int count;
   final VoidCallback onReset;
-
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(13),
@@ -473,251 +350,9 @@ class _ActiveReportFilterBanner extends StatelessWidget {
   );
 }
 
-class _RequestReportFilterSheet extends StatefulWidget {
-  const _RequestReportFilterSheet({required this.initial});
-  final _RequestReportFilter initial;
-
-  @override
-  State<_RequestReportFilterSheet> createState() =>
-      _RequestReportFilterSheetState();
-}
-
-class _RequestReportFilterSheetState extends State<_RequestReportFilterSheet> {
-  late _RequestReportFilter value = widget.initial;
-
-  List<String> _values(String Function(MyRequest request) read) =>
-      MockData.myRequests.map(read).toSet().toList()..sort();
-
-  List<String> get sites =>
-      MockData.myRequests
-          .where(
-            (item) =>
-                value.incidentNumber == null ||
-                item.incidentNumber == value.incidentNumber,
-          )
-          .map((item) => item.siteName)
-          .toSet()
-          .toList()
-        ..sort();
-
-  Future<void> _pickDate(bool from) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: from
-          ? value.from ?? DateTime(2026, 8, 1)
-          : value.to ?? DateTime(2026, 8, 10),
-      firstDate: DateTime(2026),
-      lastDate: DateTime(2027),
-    );
-    if (picked == null) return;
-    setState(
-      () => value = _RequestReportFilter(
-        range: ReportRange.custom,
-        from: from ? picked : value.from,
-        to: from ? value.to : picked,
-        type: value.type,
-        status: value.status,
-        createdBy: value.createdBy,
-        incidentNumber: value.incidentNumber,
-        site: value.site,
-      ),
-    );
-  }
-
-  _RequestReportFilter _copy({
-    ReportRange? range,
-    RelatedRequestType? type,
-    MyRequestStatus? status,
-    String? createdBy,
-    String? incidentNumber,
-    String? site,
-    bool clearType = false,
-    bool clearStatus = false,
-    bool clearCreatedBy = false,
-    bool clearIncident = false,
-    bool clearSite = false,
-  }) => _RequestReportFilter(
-    range: range ?? value.range,
-    from: value.from,
-    to: value.to,
-    type: clearType ? null : type ?? value.type,
-    status: clearStatus ? null : status ?? value.status,
-    createdBy: clearCreatedBy ? null : createdBy ?? value.createdBy,
-    incidentNumber: clearIncident
-        ? null
-        : incidentNumber ?? value.incidentNumber,
-    site: clearSite ? null : site ?? value.site,
-  );
-
-  String _typeLabel(BuildContext context, RelatedRequestType type) =>
-      switch (type) {
-        RelatedRequestType.intervention => context.tr('Intervention', 'تدخل'),
-        RelatedRequestType.renewal => context.tr('Renewal', 'تجديد'),
-        RelatedRequestType.departure => context.tr('Departure', 'مغادرة'),
-      };
-
-  @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color: Theme.of(context).scaffoldBackgroundColor,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-    ),
-    child: DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: .9,
-      minChildSize: .55,
-      maxChildSize: .96,
-      builder: (_, controller) => Column(
-        children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 42,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.border,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 13, 8, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    context.tr('Request Report Filters', 'فلاتر تقرير الطلبات'),
-                    style: AppTypography.title,
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              controller: controller,
-              padding: const EdgeInsets.fromLTRB(18, 6, 18, 20),
-              children: [
-                _RangeSelector(
-                  value: value.range,
-                  onChanged: (range) =>
-                      setState(() => value = _copy(range: range)),
-                ),
-                if (value.range == ReportRange.custom) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _DateButton(
-                          label: context.tr('Date From', 'من تاريخ'),
-                          value: value.from,
-                          onTap: () => _pickDate(true),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _DateButton(
-                          label: context.tr('Date To', 'إلى تاريخ'),
-                          value: value.to,
-                          onTap: () => _pickDate(false),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 18),
-                _FilterDropdown<RelatedRequestType>(
-                  label: context.tr('Request Type', 'نوع الطلب'),
-                  value: value.type,
-                  values: RelatedRequestType.values,
-                  labelOf: (item) => _typeLabel(context, item),
-                  onChanged: (item) => setState(
-                    () => value = _copy(type: item, clearType: item == null),
-                  ),
-                ),
-                _FilterDropdown<MyRequestStatus>(
-                  label: context.tr('Status', 'الحالة'),
-                  value: value.status,
-                  values: MyRequestStatus.values,
-                  labelOf: (item) => _requestReportStatusLabel(context, item),
-                  onChanged: (item) => setState(
-                    () =>
-                        value = _copy(status: item, clearStatus: item == null),
-                  ),
-                ),
-                _FilterDropdown<String>(
-                  label: context.tr('Created By', 'أنشئ بواسطة'),
-                  value: value.createdBy,
-                  values: _values((item) => item.createdBy),
-                  labelOf: (item) => item,
-                  onChanged: (item) => setState(
-                    () => value = _copy(
-                      createdBy: item,
-                      clearCreatedBy: item == null,
-                    ),
-                  ),
-                ),
-                _FilterDropdown<String>(
-                  label: context.tr('Incident Number', 'رقم البلاغ'),
-                  value: value.incidentNumber,
-                  values: _values((item) => item.incidentNumber),
-                  labelOf: (item) => item,
-                  onChanged: (item) => setState(
-                    () => value = _copy(
-                      incidentNumber: item,
-                      clearIncident: item == null,
-                      clearSite: true,
-                    ),
-                  ),
-                ),
-                _FilterDropdown<String>(
-                  label: context.tr('Site', 'الموقع'),
-                  value: value.site,
-                  values: sites,
-                  labelOf: (item) => context.mockText(item),
-                  onChanged: (item) => setState(
-                    () => value = _copy(site: item, clearSite: item == null),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: AppButton(
-                      label: context.tr('Reset', 'إعادة ضبط'),
-                      style: AppButtonStyle.outline,
-                      onPressed: () =>
-                          setState(() => value = const _RequestReportFilter()),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: AppButton(
-                      label: context.tr('Apply Filters', 'تطبيق الفلاتر'),
-                      onPressed: () => Navigator.pop(context, value),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class _RequestStatusSummary extends StatelessWidget {
-  const _RequestStatusSummary({required this.requests});
-  final List<MyRequest> requests;
+  const _RequestStatusSummary({required this.summary});
+  final RequestsPathReportSummary? summary;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -727,7 +362,12 @@ class _RequestStatusSummary extends StatelessWidget {
         spacing: 10,
         runSpacing: 10,
         children: MyRequestStatus.values.map((status) {
-          final count = requests.where((item) => item.status == status).length;
+          final count = switch (status) {
+            MyRequestStatus.pending => summary?.pendingDecisionCount,
+            MyRequestStatus.approved => summary?.approvedCount,
+            MyRequestStatus.rejected => summary?.rejectedCount,
+            MyRequestStatus.completed => summary?.completedCount,
+          };
           final color = _requestReportStatusColor(status);
           return SizedBox(
             width: width,
@@ -752,7 +392,7 @@ class _RequestStatusSummary extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '$count',
+                    count?.toString() ?? '—',
                     style: AppTypography.title.copyWith(color: color),
                   ),
                 ],
@@ -766,48 +406,33 @@ class _RequestStatusSummary extends StatelessWidget {
 }
 
 class _RequestFlowCard extends StatelessWidget {
-  const _RequestFlowCard({required this.request});
-  final MyRequest request;
-
+  const _RequestFlowCard({required this.request, this.statusCode});
+  final RequestsPathReportItem request;
+  final String? statusCode;
   @override
   Widget build(BuildContext context) {
-    final finalColor = _requestReportStatusColor(request.status);
-    final steps = [
-      (
-        context.tr('Created', 'تم الإنشاء'),
-        Icons.add_circle_outline,
-        AppColors.success,
-        true,
-      ),
-      (
-        context.tr('Submitted', 'تم الإرسال'),
-        Icons.send_outlined,
-        AppColors.success,
-        true,
-      ),
-      (
-        context.tr('Under Review', 'قيد المراجعة'),
-        Icons.manage_search_outlined,
-        request.status == MyRequestStatus.pending
-            ? AppColors.warning
-            : AppColors.success,
-        true,
-      ),
-      (
-        _requestReportStatusLabel(context, request.status),
-        _requestReportStatusIcon(request.status),
-        finalColor,
-        request.status != MyRequestStatus.pending,
-      ),
-    ];
+    final code = (statusCode ?? request.requestStatus?.name ?? '')
+        .trim()
+        .toUpperCase();
+    final finalColor = switch (code) {
+      'APPROVED' => AppColors.info,
+      'REJECTED' => AppColors.error,
+      'COMPLETED' => AppColors.success,
+      'PENDING' || 'PENDING_DECISION' => AppColors.warning,
+      _ => AppColors.muted,
+    };
+    final steps = request.steps;
     return Card(
       child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => RequestDetailsScreen(request: request),
-          ),
-        ),
+        onTap: request.id == null || request.id! <= 0
+            ? null
+            : () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ApiRequestDetailsScreen(requestId: request.id!),
+                ),
+              ),
         borderRadius: BorderRadius.circular(AppRadius.card),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -816,15 +441,21 @@ class _RequestFlowCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.account_tree_outlined, color: AppColors.orange),
+                  const Icon(
+                    Icons.account_tree_outlined,
+                    color: AppColors.orange,
+                  ),
                   const SizedBox(width: 9),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(request.number, style: AppTypography.section),
                         Text(
-                          '${request.incidentNumber} • ${request.siteName}',
+                          request.requestCode ?? '—',
+                          style: AppTypography.section,
+                        ),
+                        Text(
+                          '${request.incidentNo ?? '—'} • ${request.locationName ?? '—'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppTypography.meta.copyWith(
@@ -842,9 +473,46 @@ class _RequestFlowCard extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
+              Text(
+                '${request.requestType?.name ?? '—'} • ${request.requestStatus?.name ?? '—'}',
+                style: AppTypography.meta.copyWith(color: finalColor),
+              ),
               const Divider(height: 26),
+              if (steps.isEmpty)
+                Text(
+                  context.tr(
+                    'No path steps returned.',
+                    'لا توجد خطوات مسار في البيانات المستلمة.',
+                  ),
+                  style: AppTypography.meta,
+                ),
               ...List.generate(steps.length, (index) {
-                final item = steps[index];
+                final step = steps[index];
+                final state = step.state?.trim().toLowerCase();
+                final primary = context.strings.isArabic
+                    ? step.titleAr
+                    : step.titleEn;
+                final secondary = context.strings.isArabic
+                    ? step.titleEn
+                    : step.titleAr;
+                final title = primary?.trim().isNotEmpty == true
+                    ? primary!
+                    : secondary?.trim().isNotEmpty == true
+                    ? secondary!
+                    : step.key ?? '—';
+                final color = state == 'done'
+                    ? step.key?.trim().toLowerCase() == 'final'
+                          ? finalColor
+                          : AppColors.success
+                    : state == 'current'
+                    ? AppColors.warning
+                    : AppColors.muted;
+                final icon = state == 'done'
+                    ? Icons.check_circle_outline
+                    : state == 'current'
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked;
                 return IntrinsicHeight(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -853,11 +521,7 @@ class _RequestFlowCard extends StatelessWidget {
                         width: 30,
                         child: Column(
                           children: [
-                            Icon(
-                              item.$4 ? item.$2 : Icons.radio_button_unchecked,
-                              color: item.$3,
-                              size: 22,
-                            ),
+                            Icon(icon, color: color, size: 22),
                             if (index < steps.length - 1)
                               Expanded(
                                 child: Container(
@@ -872,9 +536,34 @@ class _RequestFlowCard extends StatelessWidget {
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.only(bottom: 15),
-                          child: Text(
-                            item.$1,
-                            style: AppTypography.label.copyWith(color: item.$3),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: AppTypography.label.copyWith(
+                                  color: color,
+                                ),
+                              ),
+                              if (state == 'current')
+                                Text(
+                                  context.tr('Current step', 'الخطوة الحالية'),
+                                  style: AppTypography.meta.copyWith(
+                                    color: color,
+                                  ),
+                                ),
+                              if (state != null &&
+                                  state != 'done' &&
+                                  state != 'current')
+                                Text(step.state!, style: AppTypography.meta),
+                              if (step.dateTime?.trim().isNotEmpty == true)
+                                Text(
+                                  formatCapApiDate(step.dateTime),
+                                  style: AppTypography.meta.copyWith(
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
