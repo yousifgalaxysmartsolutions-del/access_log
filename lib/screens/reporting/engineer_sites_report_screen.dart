@@ -4,16 +4,20 @@ import '../../core/di/injection.dart';
 import '../../core/localization/app_strings.dart';
 import '../../core/theme/app_tokens.dart';
 import '../../features/reports/data/models/incident_report_models.dart';
+import '../../features/reports/data/models/engineer_locations_report_models.dart';
 import '../../features/reports/presentation/bloc/engineer_locations_report_cubit.dart';
 import '../../widgets/empty_state.dart';
 import 'engineer_sites_report_filter_sheet.dart';
 import 'reporting_screen.dart' show EngineerSitesReportVisuals;
 
 class EngineerSitesReportScreen extends StatelessWidget {
-  const EngineerSitesReportScreen({super.key});
+  const EngineerSitesReportScreen({super.key, this.initialFilter});
+  final EngineerLocationsReportFilter? initialFilter;
   @override
   Widget build(BuildContext context) => BlocProvider(
-    create: (_) => services<EngineerLocationsReportCubit>()..loadInitial(),
+    create: (_) =>
+        services<EngineerLocationsReportCubit>()
+          ..loadInitial(initialFilter: initialFilter),
     child: const _EngineerSitesReportView(),
   );
 }

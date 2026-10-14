@@ -7,11 +7,14 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:access_log_plus/core/di/injection.dart';
 import 'incident_report_test.dart' show registerReportTestCubit;
+import 'engineers_activity_report_test.dart'
+    show registerActivityReportTestCubit;
 
 void main() {
   setUp(() async {
     await services.reset();
     registerReportTestCubit();
+    registerActivityReportTestCubit();
   });
   tearDown(() => services.reset());
   Widget app(Widget home, {Locale locale = const Locale('en')}) => MaterialApp(
@@ -89,7 +92,7 @@ void main() {
     await tester.ensureVisible(find.text('Engineer Activity Report'));
     await tester.tap(find.text('Engineer Activity Report'));
     await tester.pumpAndSettle();
-    expect(find.text('Ahmed Mohamed'), findsOneWidget);
+    expect(find.text('engineer 1'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -83,9 +83,12 @@ class EngineerLocationsReportCubit extends Cubit<EngineerLocationsReportState> {
       currentUser()!.numericId: currentUser()!.name ?? '—',
     for (final member in state.team) member.id: member.name,
   };
-  Future<void> loadInitial() async {
+  Future<void> loadInitial({
+    EngineerLocationsReportFilter? initialFilter,
+  }) async {
     if (_started) return;
     _started = true;
+    if (initialFilter != null) emit(state.copyWith(active: initialFilter));
     if (state.active.engineerUserId <= 0) {
       await refresh();
       return;

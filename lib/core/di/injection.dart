@@ -11,6 +11,10 @@ import '../../features/incidents/domain/usecases/incident_execution_use_case.dar
 import '../../features/incidents/domain/repositories/incident_action_configuration_repository.dart';
 import '../../features/incidents/domain/usecases/get_incident_action_configuration_use_case.dart';
 import 'package:dio/dio.dart';
+import '../../features/reports/data/repositories/engineers_activity_report_repository_impl.dart';
+import '../../features/reports/domain/repositories/engineers_activity_report_repository.dart';
+import '../../features/reports/domain/usecases/get_engineers_activity_report_use_case.dart';
+import '../../features/reports/presentation/bloc/engineers_activity_report_cubit.dart';
 import '../../features/incidents/presentation/bloc/incident_map_cubit.dart';
 import '../../features/reports/data/repositories/requests_path_report_repository_impl.dart';
 import '../../features/reports/domain/repositories/requests_path_report_repository.dart';
@@ -291,6 +295,25 @@ void registerDashboardDependencies(
   }
   services.registerLazySingleton<ReportApiService>(
     () => ReportApiService(services<Dio>()),
+  );
+  services.registerLazySingleton<EngineersActivityReportRepository>(
+    () => EngineersActivityReportRepositoryImpl(
+      services<ReportApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<GetEngineersActivityReportUseCase>(
+    () => GetEngineersActivityReportUseCase(
+      services<EngineersActivityReportRepository>(),
+    ),
+  );
+  services.registerFactory<EngineersActivityReportCubit>(
+    () => EngineersActivityReportCubit(
+      getReport: services<GetEngineersActivityReportUseCase>(),
+      getLocations: services<GetReportLocationsUseCase>(),
+      loadTeam: services<IncidentExecutionUseCase>().getTeam,
+      currentUser: () => session.user,
+    ),
   );
   services.registerLazySingleton<RequestsPathReportRepository>(
     () => RequestsPathReportRepositoryImpl(
