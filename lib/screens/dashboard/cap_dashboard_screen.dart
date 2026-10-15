@@ -125,12 +125,12 @@ class _DashboardContent extends StatelessWidget {
         Icons.pause_circle_outline,
         CapIncidentStatus.hold,
       ),
-      _Metric(
-        context.tr("Today's Activities", 'أنشطة اليوم'),
-        data.todaysActivities,
-        Icons.today_outlined,
-        null,
-      ),
+      // _Metric(
+      //   context.tr("Today's Activities", 'أنشطة اليوم'),
+      //   data.todaysActivities,
+      //   Icons.today_outlined,
+      //   null,
+      // ),
       _Metric(
         context.tr('Need Approval', 'تحتاج موافقة'),
         data.needApproval,
@@ -338,7 +338,12 @@ class _DashboardContent extends StatelessWidget {
   /// it depends on a loaded response.
   Future<void> _selectMonth(BuildContext context, DateTime current) async {
     final form = GlobalKey<FormState>();
-    var year = '${current.year}';
+    var year = current.year;
+    final thisYear = DateTime.now().year;
+    final years = {
+      ...List.generate(26, (index) => thisYear + 5 - index),
+      current.year,
+    }.toList()..sort((a, b) => b.compareTo(a));
     var month = current.month;
     final selected = await showDialog<DateTime>(
       context: context,
@@ -361,29 +366,28 @@ class _DashboardContent extends StatelessWidget {
                     (index) => DropdownMenuItem(
                       value: index + 1,
                       child: Text(
-                        dashboardMonthTitle(
-                          DateTime(current.year, index + 1),
-                          context.strings,
-                        ),
+                        dashboardMonthName(index + 1, context.strings),
                       ),
                     ),
                   ),
                   onChanged: (value) => month = value ?? month,
                 ),
                 const SizedBox(height: 16),
-                TextFormField(
+                DropdownButtonFormField<int>(
                   initialValue: year,
-                  keyboardType: TextInputType.number,
+                  isExpanded: true,
                   decoration: InputDecoration(
                     labelText: context.tr('Year', 'السنة'),
                   ),
-                  onChanged: (value) => year = value,
-                  validator: (value) {
-                    final parsed = int.tryParse(value?.trim() ?? '');
-                    return parsed == null || parsed < 1 || parsed > 9999
-                        ? context.tr('Enter a valid year', 'أدخل سنة صحيحة')
-                        : null;
-                  },
+                  items: years
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text('$value'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => year = value ?? year,
                 ),
               ],
             ),
@@ -397,10 +401,7 @@ class _DashboardContent extends StatelessWidget {
           FilledButton(
             onPressed: () {
               if (form.currentState!.validate()) {
-                Navigator.pop(
-                  dialogContext,
-                  DateTime(int.parse(year.trim()), month),
-                );
+                Navigator.pop(dialogContext, DateTime(year, month));
               }
             },
             child: Text(context.tr('Apply', 'تطبيق')),

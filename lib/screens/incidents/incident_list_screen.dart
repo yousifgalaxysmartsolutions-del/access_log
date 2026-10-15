@@ -53,6 +53,16 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
   Future<void> _load(DateTime from, DateTime to) =>
       bloc.load(from, to, statusId: filter.statusId ?? -1, filter: filter);
 
+  Future<void> _openIncident(CapIncident incident) async {
+    await Navigator.pushNamed(
+      context,
+      AppRoutes.incidentDetails,
+      arguments: incident,
+    );
+    if (!mounted || !widget.isActive) return;
+    await _load(bloc.state.from, bloc.state.to);
+  }
+
   @override
   void didUpdateWidget(IncidentListScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -378,11 +388,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
                   separatorBuilder: (_, _) => const SizedBox(height: 11),
                   itemBuilder: (context, index) => CapIncidentCard(
                     incident: items[index],
-                    onTap: () => Navigator.pushNamed(
-                      context,
-                      AppRoutes.incidentDetails,
-                      arguments: items[index],
-                    ),
+                    onTap: () => _openIncident(items[index]),
                   ),
                 ),
               ),

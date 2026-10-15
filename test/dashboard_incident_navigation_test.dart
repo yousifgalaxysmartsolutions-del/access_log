@@ -106,8 +106,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.calendar_month_outlined));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextFormField), '2024');
-      await tester.tap(find.byType(DropdownButtonFormField<int>));
+      expect(find.byType(TextFormField), findsNothing);
+      await tester.tap(find.byType(DropdownButtonFormField<int>).at(1));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('2024').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2024').last);
+      await tester.pumpAndSettle();
+      final monthDropdown = tester.widget<DropdownButton<int>>(
+        find.byType(DropdownButton<int>).first,
+      );
+      expect((monthDropdown.items![1].child as Text).data, 'February');
+      await tester.tap(find.byType(DropdownButtonFormField<int>).first);
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.textContaining('February').last);
       await tester.pumpAndSettle();

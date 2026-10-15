@@ -91,6 +91,10 @@ const _monthNames = <int, (String, String)>{
 
 /// Localized `Month Year` label, derived from the requested month.
 String dashboardMonthTitle(DateTime date, AppStrings strings) {
-  final (english, arabic) = _monthNames[date.month] ?? ('', '');
-  return '${strings.isArabic ? arabic : english} ${date.year}';
+  return '${dashboardMonthName(date.month, strings)} ${date.year}';
+}
+
+String dashboardMonthName(int month, AppStrings strings) {
+  final (english, arabic) = _monthNames[month] ?? ('', '');
+  return strings.isArabic ? arabic : english;
 }

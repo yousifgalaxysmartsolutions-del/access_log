@@ -287,6 +287,46 @@ void main() {
     await tester.pumpAndSettle();
     expect((argument as CapIncident).incidentId, 81);
   });
+
+  testWidgets(
+    'return from details refreshes API and keeps dates, filters and search',
+    (tester) async {
+      final filter = IncidentListFilter(
+        from: DateTime(2026, 9, 1),
+        to: DateTime(2026, 9, 30),
+        statusId: 3,
+        priorityId: 1,
+        incidentTypeId: 2,
+        locationCode: 'D10738',
+      );
+      await open(tester, filter: filter);
+      await tester.enterText(find.byType(TextField), 'INC-81');
+      await tester.pump();
+      await tester.tap(find.byType(CapIncidentCard));
+      await tester.pumpAndSettle();
+      expect(repo.calls.length, 1);
+      repo.result = Success([apiIncident(81, status: 'Completed')]);
+      final detailsContext = tester.element(find.text('Details'));
+      Navigator.pop(detailsContext);
+      await tester.pumpAndSettle();
+      expect(repo.calls.length, 2);
+      expect(repo.calls.last, (DateTime(2026, 9, 1), DateTime(2026, 9, 30)));
+      expect(repo.statusIds.last, 3);
+      expect(repo.filters.last, same(filter));
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        'INC-81',
+      );
+      expect(
+        tester
+            .widget<CapIncidentCard>(find.byType(CapIncidentCard))
+            .incident
+            .status,
+        CapIncidentStatus.completed,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'initial date + every local text filter; chip clears only status',
     (tester) async {
