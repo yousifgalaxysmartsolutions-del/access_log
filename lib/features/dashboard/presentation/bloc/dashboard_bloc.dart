@@ -23,6 +23,11 @@ class DashboardRefreshed extends DashboardEvent {
 
 enum DashboardStatus { initial, loading, ready, failure }
 
+class DashboardMonthSelected extends DashboardEvent {
+  const DashboardMonthSelected(this.month);
+  final DateTime month;
+}
+
 /// Statistics and the day's incidents are tracked separately so one failing
 /// endpoint cannot hide the other's data.
 class DashboardState {
@@ -32,6 +37,7 @@ class DashboardState {
     this.todayIncidents = const [],
     this.statsFailure,
     this.incidentsFailure,
+    this.selectedMonth,
   });
 
   final DashboardStatus status;
@@ -39,6 +45,7 @@ class DashboardState {
   final List<CapIncident> todayIncidents;
   final Failure? statsFailure;
   final Failure? incidentsFailure;
+  final DateTime? selectedMonth;
 
   bool get isRefreshing => status == DashboardStatus.loading && hasContent;
 
@@ -58,6 +65,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
        super(const DashboardState()) {
     on<DashboardRequested>(_onRequested);
     on<DashboardRefreshed>(_onRefreshed);
+    on<DashboardMonthSelected>(
+      (event, emit) => _load(emit, month: event.month),
+    );
   }
 
   final GetDashboardStatsUseCase _getDashboardStats;
@@ -65,6 +75,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
   /// Injected so tests can pin "today" instead of depending on the wall clock.
   final DateTime Function() _now;
+  int _revision = 0;
 
   Future<void> _onRequested(
     DashboardRequested event,
@@ -76,26 +87,32 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     Emitter<DashboardState> emit,
   ) => _load(emit);
 
-  Future<void> _load(Emitter<DashboardState> emit) async {
+  Future<void> _load(Emitter<DashboardState> emit, {DateTime? month}) async {
     // Guards against a refresh landing while the first load is still running.
-    if (state.status == DashboardStatus.loading) return;
+    if (state.status == DashboardStatus.loading && month == null) return;
+    final revision = ++_revision;
+    final requestedAt = _now();
+    final selected = month ?? state.selectedMonth ?? requestedAt;
+    final selectedMonth = DateTime(selected.year, selected.month);
     emit(
       DashboardState(
         status: DashboardStatus.loading,
-        stats: state.stats,
+        selectedMonth: selectedMonth,
+        stats: state.selectedMonth == selectedMonth ? state.stats : null,
         todayIncidents: state.todayIncidents,
       ),
     );
 
-    final requestedAt = _now();
     final results = await (
-      _getDashboardStats(forMonth: requestedAt),
+      _getDashboardStats(forMonth: selectedMonth),
       _getIncidentList(day: requestedAt),
     ).wait;
+    if (revision != _revision || emit.isDone) return;
 
     emit(
       DashboardState(
         status: DashboardStatus.ready,
+        selectedMonth: selectedMonth,
         stats: _valueOf(results.$1),
         todayIncidents: _valueOf(results.$2) ?? const [],
         statsFailure: _failureOf(results.$1),

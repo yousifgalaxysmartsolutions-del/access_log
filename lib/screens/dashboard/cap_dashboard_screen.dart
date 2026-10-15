@@ -72,7 +72,7 @@ class _CapDashboardViewState extends State<_CapDashboardView> {
       builder: (context, state) {
         final data = DashboardViewData.fromState(
           state,
-          monthDate: DateTime.now(),
+          monthDate: state.selectedMonth ?? DateTime.now(),
         );
         return _DashboardContent(data: data, state: state);
       },
@@ -157,6 +157,15 @@ class _DashboardContent extends StatelessWidget {
             sliver: SliverList.list(
               children: [
                 _header(context, now),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.calendar_month_outlined),
+                    label: Text(dashboardMonthTitle(now, context.strings)),
+                    onPressed: () => _selectMonth(context, now),
+                  ),
+                ),
                 const SizedBox(height: 20),
                 if (isFirstLoad)
                   ..._DashboardSkeleton.placeholders(context)
@@ -208,6 +217,7 @@ class _DashboardContent extends StatelessWidget {
                     onTap: () => DashboardIncidentNavigation.open(
                       context,
                       metric.status,
+                      month: data.monthDate,
                     ),
                   ),
                 ),
@@ -218,6 +228,7 @@ class _DashboardContent extends StatelessWidget {
     ),
     const SizedBox(height: 24),
     _StatusOverview(
+      month: data.monthDate,
       total: data.totalIncidents,
       rows: [
         _StatusRow(
@@ -325,6 +336,83 @@ class _DashboardContent extends StatelessWidget {
 
   /// Title, subtitle and quick actions. Shown above the skeleton because none of
   /// it depends on a loaded response.
+  Future<void> _selectMonth(BuildContext context, DateTime current) async {
+    final form = GlobalKey<FormState>();
+    var year = '${current.year}';
+    var month = current.month;
+    final selected = await showDialog<DateTime>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.tr('Month / Year', 'الشهر / السنة')),
+        content: SingleChildScrollView(
+          child: Form(
+            key: form,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<int>(
+                  initialValue: month,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: context.tr('Month', 'الشهر'),
+                  ),
+                  items: List.generate(
+                    12,
+                    (index) => DropdownMenuItem(
+                      value: index + 1,
+                      child: Text(
+                        dashboardMonthTitle(
+                          DateTime(current.year, index + 1),
+                          context.strings,
+                        ),
+                      ),
+                    ),
+                  ),
+                  onChanged: (value) => month = value ?? month,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  initialValue: year,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: context.tr('Year', 'السنة'),
+                  ),
+                  onChanged: (value) => year = value,
+                  validator: (value) {
+                    final parsed = int.tryParse(value?.trim() ?? '');
+                    return parsed == null || parsed < 1 || parsed > 9999
+                        ? context.tr('Enter a valid year', 'أدخل سنة صحيحة')
+                        : null;
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.tr('Cancel', 'إلغاء')),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (form.currentState!.validate()) {
+                Navigator.pop(
+                  dialogContext,
+                  DateTime(int.parse(year.trim()), month),
+                );
+              }
+            },
+            child: Text(context.tr('Apply', 'تطبيق')),
+          ),
+        ],
+      ),
+    );
+    if (selected != null && context.mounted) {
+      context.read<DashboardBloc>().add(DashboardMonthSelected(selected));
+    }
+  }
+
   Widget _header(BuildContext context, DateTime now) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -720,7 +808,13 @@ class _StatusRow {
 }
 
 class _StatusOverview extends StatelessWidget {
-  const _StatusOverview({required this.total, required this.rows});
+  const _StatusOverview({
+    required this.total,
+    required this.rows,
+    required this.month,
+  });
+
+  final DateTime month;
 
   final int total;
   final List<_StatusRow> rows;
@@ -747,8 +841,11 @@ class _StatusOverview extends StatelessWidget {
           ...rows.map(
             (row) => InkWell(
               borderRadius: BorderRadius.circular(10),
-              onTap: () =>
-                  DashboardIncidentNavigation.open(context, row.status),
+              onTap: () => DashboardIncidentNavigation.open(
+                context,
+                row.status,
+                month: month,
+              ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 7),
                 child: Column(

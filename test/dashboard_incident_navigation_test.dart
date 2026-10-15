@@ -104,6 +104,17 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.calendar_month_outlined));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField), '2024');
+      await tester.tap(find.byType(DropdownButtonFormField<int>));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.textContaining('February').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('February').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
       for (final entry in [
         ('In Progress', 407),
         ('Completed', 509),
@@ -122,6 +133,16 @@ void main() {
         });
         await tester.pumpAndSettle();
         expect(filters.last.statusId, entry.$2);
+        expect(filters.last.from, DateTime(2024, 2, 1));
+        expect(filters.last.to, DateTime(2024, 2, 29));
+        expect(
+          (transport.calls.last.data as Map)['data']['FromDate'],
+          '2024-02-01',
+        );
+        expect(
+          (transport.calls.last.data as Map)['data']['ToDate'],
+          '2024-02-29',
+        );
         expect(
           (transport.calls.last.data as Map)['data']['StatusId'],
           entry.$2,

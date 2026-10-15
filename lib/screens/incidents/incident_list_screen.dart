@@ -173,7 +173,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
         '${MaterialLocalizations.of(context).formatMediumDate(date)} ${date.year}';
     return Scaffold(
       appBar: AppBar(
-        title: Text(context.tr('Today’s Incidents', 'بلاغات اليوم')),
+        title: Text(context.tr('Incidents', 'البلاغات')),
         actions: [
           PopupMenuButton<IncidentSort>(
             tooltip: context.tr('Sort incidents', 'ترتيب البلاغات'),

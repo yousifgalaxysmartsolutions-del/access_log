@@ -10,8 +10,9 @@ import '../../incidents/data/models/incident_lookup_models.dart';
 class DashboardIncidentNavigation {
   static IncidentListFilter? resolve(
     CapIncidentStatus status,
-    IncidentLookupData lookup,
-  ) {
+    IncidentLookupData lookup, {
+    DateTime? month,
+  }) {
     final codes = switch (status) {
       CapIncidentStatus.needAssign => {'needassign'},
       CapIncidentStatus.needApproval => {'needapproval'},
@@ -33,21 +34,33 @@ class DashboardIncidentNavigation {
         )
         .toList();
     if (matches.length != 1) return null;
-    return IncidentListFilter(status: status, statusId: matches.single.id);
+    final period = month == null ? null : monthFilter(month);
+    return IncidentListFilter(
+      status: status,
+      statusId: matches.single.id,
+      from: period?.from,
+      to: period?.to,
+    );
   }
+
+  static IncidentListFilter monthFilter(DateTime month) => IncidentListFilter(
+    from: DateTime(month.year, month.month),
+    to: DateTime(month.year, month.month + 1, 0),
+  );
 
   static Future<void> open(
     BuildContext context,
-    CapIncidentStatus? status,
-  ) async {
+    CapIncidentStatus? status, {
+    required DateTime month,
+  }) async {
     IncidentListFilter? filter;
     if (status == null) {
-      filter = const IncidentListFilter();
+      filter = monthFilter(month);
     } else if (services.isRegistered<IncidentLookupStore>()) {
       final store = services<IncidentLookupStore>();
       if (store.current == null) await store.refresh();
       final lookup = store.current;
-      if (lookup != null) filter = resolve(status, lookup);
+      if (lookup != null) filter = resolve(status, lookup, month: month);
     }
     if (!context.mounted) return;
     if (filter == null) {

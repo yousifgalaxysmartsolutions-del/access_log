@@ -18,11 +18,13 @@ import 'package:access_log_plus/models/models.dart';
 
 class _FakeDashboardRepository implements DashboardRepository {
   int calls = 0;
+  final months = <DateTime>[];
   @override
   Future<Result<DashboardStatsData>> getStats({
     required DateTime forMonth,
   }) async {
     calls++;
+    months.add(forMonth);
     return Success(
       DashboardStatsData(
         totalIncidents: 5,
@@ -62,6 +64,31 @@ class _FakeIncidentRepository implements IncidentRepository {
 }
 
 void main() {
+  test('month selection updates statistics and survives refresh', () async {
+    final stats = _FakeDashboardRepository();
+    final bloc = DashboardBloc(
+      getDashboardStats: GetDashboardStatsUseCase(stats),
+      getIncidentList: GetIncidentListUseCase(_FakeIncidentRepository()),
+      now: () => DateTime(2026, 10, 15),
+    );
+    addTearDown(bloc.close);
+    bloc.add(const DashboardRequested());
+    await bloc.stream.firstWhere((s) => s.status == DashboardStatus.ready);
+    bloc.add(DashboardMonthSelected(DateTime(2024, 2, 20)));
+    final selected = await bloc.stream.firstWhere(
+      (s) => s.status == DashboardStatus.ready,
+    );
+    expect(selected.selectedMonth, DateTime(2024, 2));
+    expect(selected.stats!.monthSummary.month, 2);
+    bloc.add(const DashboardRefreshed());
+    await bloc.stream.firstWhere((s) => s.status == DashboardStatus.ready);
+    expect(stats.months, [
+      DateTime(2026, 10),
+      DateTime(2024, 2),
+      DateTime(2024, 2),
+    ]);
+  });
+
   testWidgets('dashboard tab return refreshes both data sources once', (
     tester,
   ) async {
