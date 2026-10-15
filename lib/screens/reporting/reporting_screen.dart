@@ -245,22 +245,22 @@ class _ReportingScreenState extends State<ReportingScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 11),
-        _ReportTypeCard(
-          icon: Icons.cell_tower_outlined,
-          title: context.tr('Site Activity Report', 'تقرير أنشطة المواقع'),
-          description: context.tr(
-            'Incident volume and operational history by site',
-            'حجم البلاغات والسجل التشغيلي لكل موقع',
-          ),
-          count: items.map((item) => item.siteCode).toSet().length,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => SiteActivityReportScreen(filter: filter),
-            ),
-          ),
-        ),
+        // const SizedBox(height: 11),
+        // _ReportTypeCard(
+        //   icon: Icons.cell_tower_outlined,
+        //   title: context.tr('Site Activity Report', 'تقرير أنشطة المواقع'),
+        //   description: context.tr(
+        //     'Incident volume and operational history by site',
+        //     'حجم البلاغات والسجل التشغيلي لكل موقع',
+        //   ),
+        //   count: items.map((item) => item.siteCode).toSet().length,
+        //   onTap: () => Navigator.push(
+        //     context,
+        //     MaterialPageRoute(
+        //       builder: (_) => SiteActivityReportScreen(filter: filter),
+        //     ),
+        //   ),
+        // ),
         const SizedBox(height: 11),
         _ReportTypeCard(
           icon: Icons.account_tree_outlined,
@@ -1877,17 +1877,17 @@ class _ReportTypeCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Column(
-              children: [
-                Text(
-                  '$count',
-                  style: AppTypography.title.copyWith(
-                    color: AppColors.orangeDark,
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: AppColors.muted),
-              ],
-            ),
+            // Column(
+            //   children: [
+            //     Text(
+            //       '$count',
+            //       style: AppTypography.title.copyWith(
+            //         color: AppColors.orangeDark,
+            //       ),
+            //     ),
+            //     const Icon(Icons.chevron_right, color: AppColors.muted),
+            //   ],
+            // ),
           ],
         ),
       ),

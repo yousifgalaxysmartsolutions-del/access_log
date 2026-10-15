@@ -12,6 +12,30 @@ import '../../domain/usecases/incident_report_use_cases.dart';
 
 const _keep = Object();
 
+class ActivityRegionDetails {
+  const ActivityRegionDetails({
+    this.loading = false,
+    this.items = const [],
+    this.failure,
+  });
+  final bool loading;
+  final List<EngineersActivityReportItem> items;
+  final Failure? failure;
+}
+
+class ActivitySiteSelection {
+  const ActivitySiteSelection({
+    this.code = '',
+    this.loading = false,
+    this.data,
+    this.failure,
+  });
+  final String code;
+  final bool loading;
+  final EngineersActivityReportItem? data;
+  final Failure? failure;
+}
+
 class EngineersActivityReportState {
   const EngineersActivityReportState({
     required this.active,
@@ -24,6 +48,8 @@ class EngineersActivityReportState {
     this.filterError = false,
     this.failure,
     this.optionsFailure,
+    this.regionDetails = const {},
+    this.siteSelections = const {},
   });
   final EngineersActivityReportFilter active;
   final EngineersActivityReportFilter? draft;
@@ -32,6 +58,8 @@ class EngineersActivityReportState {
   final List<IncidentTeamMember> team;
   final bool loading, optionsLoading, filterError;
   final Failure? failure, optionsFailure;
+  final Map<int, ActivityRegionDetails> regionDetails;
+  final Map<String, ActivitySiteSelection> siteSelections;
   bool get canPrevious => !loading && (data?.page ?? 1) > 1;
   bool get canNext =>
       !loading &&
@@ -49,6 +77,8 @@ class EngineersActivityReportState {
     bool? filterError,
     Object? failure = _keep,
     Object? optionsFailure = _keep,
+    Map<int, ActivityRegionDetails>? regionDetails,
+    Map<String, ActivitySiteSelection>? siteSelections,
   }) => EngineersActivityReportState(
     active: active ?? this.active,
     draft: identical(draft, _keep)
@@ -66,6 +96,8 @@ class EngineersActivityReportState {
     optionsFailure: identical(optionsFailure, _keep)
         ? this.optionsFailure
         : optionsFailure as Failure?,
+    regionDetails: regionDetails ?? this.regionDetails,
+    siteSelections: siteSelections ?? this.siteSelections,
   );
 }
 
@@ -291,9 +323,163 @@ class EngineersActivityReportCubit extends Cubit<EngineersActivityReportState> {
         toDate: state.active.toDate,
         engineerUserId: engineerId,
       );
+  String _cardKey(int engineerId, int? regionId) =>
+      '${regionId ?? 'all'}:$engineerId';
+  ActivitySiteSelection siteSelection(int? engineerId, {int? regionId}) =>
+      state.siteSelections[_cardKey(engineerId ?? 0, regionId)] ??
+      const ActivitySiteSelection();
+  Future<void> loadRegion(int regionId, {bool retry = false}) async {
+    if (regionId <= 0 ||
+        state.loading ||
+        state.active.groupBy != EngineersActivityGroup.region) {
+      return;
+    }
+    if (!retry && state.regionDetails.containsKey(regionId)) return;
+    final revision = _revision;
+    emit(
+      state.copyWith(
+        regionDetails: Map.unmodifiable({
+          ...state.regionDetails,
+          regionId: const ActivityRegionDetails(loading: true),
+        }),
+      ),
+    );
+    final items = <EngineersActivityReportItem>[];
+    final seen = <int>{};
+    var page = 1;
+    while (true) {
+      final result = await getReport(
+        state.active.copyWith(
+          groupBy: EngineersActivityGroup.engineer,
+          regionId: regionId,
+          page: page,
+        ),
+      );
+      if (isClosed || revision != _revision) return;
+      if (result is FailureResult<EngineersActivityReportData>) {
+        emit(
+          state.copyWith(
+            regionDetails: Map.unmodifiable({
+              ...state.regionDetails,
+              regionId: ActivityRegionDetails(failure: result.failure),
+            }),
+          ),
+        );
+        return;
+      }
+      final data = (result as Success<EngineersActivityReportData>).data;
+      final fresh = data.items
+          .where((e) => e.engineerId == null || seen.add(e.engineerId!))
+          .toList();
+      items.addAll(fresh);
+      if (items.length >= data.totalCount) break;
+      if (fresh.isEmpty || data.page != page) {
+        emit(
+          state.copyWith(
+            regionDetails: Map.unmodifiable({
+              ...state.regionDetails,
+              regionId: const ActivityRegionDetails(
+                failure: ServerFailure('Report pagination did not advance'),
+              ),
+            }),
+          ),
+        );
+        return;
+      }
+      page++;
+    }
+    emit(
+      state.copyWith(
+        regionDetails: Map.unmodifiable({
+          ...state.regionDetails,
+          regionId: ActivityRegionDetails(items: List.unmodifiable(items)),
+        }),
+      ),
+    );
+  }
+
+  Future<void> selectEngineerSite(
+    int engineerId,
+    String code, {
+    int? regionId,
+  }) async {
+    final key = _cardKey(engineerId, regionId);
+    final revision = _revision;
+    if (code.isEmpty) {
+      emit(
+        state.copyWith(
+          siteSelections: Map.unmodifiable({
+            ...state.siteSelections,
+            key: const ActivitySiteSelection(),
+          }),
+        ),
+      );
+      return;
+    }
+    final selection = ActivitySiteSelection(code: code, loading: true);
+    emit(
+      state.copyWith(
+        siteSelections: Map.unmodifiable({
+          ...state.siteSelections,
+          key: selection,
+        }),
+      ),
+    );
+    final result = await getReport(
+      state.active.copyWith(
+        groupBy: EngineersActivityGroup.engineer,
+        engineerUserId: engineerId,
+        regionId: regionId ?? state.active.regionId,
+        locationCode: code,
+        page: 1,
+      ),
+    );
+    if (isClosed ||
+        revision != _revision ||
+        !identical(state.siteSelections[key], selection)) {
+      return;
+    }
+    switch (result) {
+      case FailureResult(:final failure):
+        emit(
+          state.copyWith(
+            siteSelections: Map.unmodifiable({
+              ...state.siteSelections,
+              key: ActivitySiteSelection(code: code, failure: failure),
+            }),
+          ),
+        );
+      case Success(:final data):
+        final matches = data.items
+            .where((e) => e.engineerId == engineerId)
+            .toList();
+        emit(
+          state.copyWith(
+            siteSelections: Map.unmodifiable({
+              ...state.siteSelections,
+              key: ActivitySiteSelection(
+                code: code,
+                data: matches.length == 1 ? matches.single : null,
+                failure: matches.length == 1
+                    ? null
+                    : const ServerFailure('Engineer activity was not returned'),
+              ),
+            }),
+          ),
+        );
+    }
+  }
+
   Future<void> refresh() async {
     final revision = ++_revision;
-    emit(state.copyWith(loading: true, failure: null));
+    emit(
+      state.copyWith(
+        loading: true,
+        failure: null,
+        regionDetails: const {},
+        siteSelections: const {},
+      ),
+    );
     final result = await getReport(state.active);
     if (isClosed || revision != _revision) return;
     switch (result) {

@@ -194,6 +194,112 @@ class _Adapter implements HttpClientAdapter {
 
 void main() {
   test(
+    'expanded region loads real Engineer rows with RegionId and caches them',
+    () async {
+      final repo = ActivityReportTestRepository();
+      final cubit = activityReportTestCubit(repo);
+      addTearDown(cubit.close);
+      await cubit.loadInitial();
+      await cubit.changeGroup(EngineersActivityGroup.region);
+      await cubit.loadRegion(81);
+      expect(repo.calls.last.groupBy, EngineersActivityGroup.engineer);
+      expect(repo.calls.last.regionId, 81);
+      expect(repo.calls.last.toJson()['FromDate'], '2026-10-01');
+      expect(cubit.state.regionDetails[81]!.items.first.assignedCount, 4);
+      final calls = repo.calls.length;
+      await cubit.loadRegion(81);
+      expect(repo.calls, hasLength(calls));
+      await cubit.changeGroup(EngineersActivityGroup.engineer);
+      expect(cubit.state.regionDetails, isEmpty);
+    },
+  );
+  test(
+    'per-engineer site filters request server counters without mutating siblings or global filters',
+    () async {
+      final repo = ActivityReportTestRepository();
+      final cubit = activityReportTestCubit(repo);
+      addTearDown(cubit.close);
+      await cubit.loadInitial();
+      repo.handler = (filter) async => Success(
+        EngineersActivityReportData(
+          groupBy: filter.groupBy,
+          totalCount: 1,
+          items: [
+            EngineersActivityReportItem(
+              engineerId: 4099,
+              engineerName: 'engineer 1',
+              assignedCount: 17,
+              onHoldCount: 6,
+            ),
+          ],
+        ),
+      );
+      await cubit.selectEngineerSite(4099, 'D10739');
+      expect(repo.calls.last.locationCode, 'D10739');
+      expect(repo.calls.last.engineerUserId, 4099);
+      expect(repo.calls.last.page, 1);
+      expect(cubit.siteSelection(4099).data!.assignedCount, 17);
+      expect(cubit.state.active.locationCode, '');
+      expect(cubit.state.active.engineerUserId, -1);
+      expect(cubit.state.data!.items.first.assignedCount, 4);
+      expect(cubit.state.data!.items.last.assignedCount, 1);
+      final calls = repo.calls.length;
+      await cubit.selectEngineerSite(4099, '');
+      expect(repo.calls, hasLength(calls));
+      expect(cubit.siteSelection(4099).code, '');
+      final older = Completer<Result<EngineersActivityReportData>>();
+      repo.handler = (_) => older.future;
+      final pending = cubit.selectEngineerSite(4099, 'D10738');
+      await cubit.selectEngineerSite(4099, '');
+      older.complete(
+        Success(
+          EngineersActivityReportData(groupBy: EngineersActivityGroup.engineer),
+        ),
+      );
+      await pending;
+      expect(cubit.siteSelection(4099).code, '');
+      expect(cubit.siteSelection(4099).data, isNull);
+    },
+  );
+  testWidgets(
+    'original orange avatar, horizontal ChoiceChips and API site counters are restored',
+    (tester) async {
+      await services.reset();
+      addTearDown(services.reset);
+      final repo = ActivityReportTestRepository();
+      final cubit = activityReportTestCubit(repo);
+      services.registerFactory<EngineersActivityReportCubit>(() => cubit);
+      await tester.pumpWidget(
+        const MaterialApp(home: EngineerActivityReportScreen()),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Filter sites'), findsNWidgets(2));
+      expect(find.byType(ChoiceChip), findsWidgets);
+      repo.handler = (filter) async => Success(
+        EngineersActivityReportData(
+          groupBy: filter.groupBy,
+          totalCount: 1,
+          items: [
+            EngineersActivityReportItem(
+              engineerId: 4099,
+              assignedCount: 17,
+              onHoldCount: 6,
+            ),
+          ],
+        ),
+      );
+      await tester.tap(find.text('site b2'));
+      await tester.pumpAndSettle();
+      expect(find.text('17'), findsOneWidget);
+      expect(repo.calls.last.locationCode, 'D10739');
+      await tester.tap(find.text('All Sites').first);
+      await tester.pumpAndSettle();
+      expect(find.text('17'), findsNothing);
+      expect(cubit.siteSelection(4099).code, '');
+      expect(tester.takeException(), isNull);
+    },
+  );
+  test(
     'both typed shapes preserve nullable fields, server counters and duplicate region names by ID',
     () {
       final engineer = EngineersActivityReportData.fromJson(
@@ -449,14 +555,21 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text(lang == 'ar' ? 'الإقليم' : 'Region').last);
         await tester.pumpAndSettle();
-        expect(repo.calls.last.toJson()['GroupBy'], 'City');
+        expect(
+          repo.calls
+              .where((e) => e.groupBy == EngineersActivityGroup.region)
+              .last
+              .toJson()['GroupBy'],
+          'City',
+        );
         expect(find.text('Cairo'), findsOneWidget);
         await tester.scrollUntilVisible(
-          find.text(lang == 'ar' ? 'معرّف الإقليم: 111' : 'Region ID: 111'),
+          find.byKey(const ValueKey('region-111-2')),
           300,
           scrollable: find.byType(Scrollable).first,
         );
-        expect(find.text('Giza'), findsNWidgets(2));
+        expect(find.text('Giza'), findsWidgets);
+        final callsBeforeFilter = repo.calls.length;
         await tester.tap(
           find.byTooltip(lang == 'ar' ? 'فلاتر التقرير' : 'Report Filters'),
         );
@@ -469,13 +582,15 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('engineer 2').last);
         await tester.pumpAndSettle();
-        expect(repo.calls, hasLength(2));
+        expect(repo.calls, hasLength(callsBeforeFilter));
         await tester.tap(
           find.text(lang == 'ar' ? 'تطبيق الفلاتر' : 'Apply Filters'),
         );
         await tester.pumpAndSettle();
-        expect(repo.calls.last.engineerUserId, 4100);
-        expect(repo.calls.last.groupBy, EngineersActivityGroup.region);
+        final mainRequest = repo.calls
+            .where((e) => e.groupBy == EngineersActivityGroup.region)
+            .last;
+        expect(mainRequest.engineerUserId, 4100);
         expect(tester.takeException(), isNull);
       },
     );
