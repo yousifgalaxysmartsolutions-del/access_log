@@ -93,11 +93,38 @@ abstract interface class TokenStorage {
 /// Lives in core so the CAP request envelope can resolve the `userid` field
 /// without the data layer depending on the authentication feature's models.
 class SessionUser {
-  const SessionUser({required this.id, this.name});
+  const SessionUser({
+    required this.id,
+    this.name,
+    this.userTypeEn,
+    this.userTypeAr,
+  });
 
   /// `User_PK_ID` as text, matching how `AuthUser` exposes it.
   final String id;
   final String? name;
+  final String? userTypeEn, userTypeAr;
+
+  bool get isEngineer {
+    final role =
+        (userTypeEn?.trim().isNotEmpty == true ? userTypeEn : userTypeAr)
+            ?.trim()
+            .toLowerCase();
+    return const {'engineer', 'مهندس'}.contains(role);
+  }
+
+  bool get isSupervisor {
+    final role =
+        (userTypeEn?.trim().isNotEmpty == true ? userTypeEn : userTypeAr)
+            ?.trim()
+            .toLowerCase();
+    return const {
+      'supervisor',
+      'supervisior',
+      'supervision',
+      'مشرف',
+    }.contains(role);
+  }
 
   /// Numeric form the CAP envelope expects (`"userid": 4098`).
   int get numericId => int.tryParse(id.trim()) ?? 0;
@@ -109,10 +136,17 @@ class SessionUser {
     return SessionUser(
       id: id,
       name: (name == null || name.isEmpty) ? null : name,
+      userTypeEn: json['userTypeEn'] as String?,
+      userTypeAr: json['userTypeAr'] as String?,
     );
   }
 
-  Map<String, dynamic> toJson() => {'id': id, if (name != null) 'name': name};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    if (name != null) 'name': name,
+    if (userTypeEn != null) 'userTypeEn': userTypeEn,
+    if (userTypeAr != null) 'userTypeAr': userTypeAr,
+  };
 }
 
 /// Deliberately separate from [TokenStorage] so token rotation keeps its

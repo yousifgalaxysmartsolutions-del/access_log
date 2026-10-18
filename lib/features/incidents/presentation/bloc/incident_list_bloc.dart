@@ -68,6 +68,8 @@ class IncidentListBloc extends Bloc<LoadIncidentList, IncidentListState> {
             event.statusId == state.statusId &&
             event.filter.priorityId == state.filter.priorityId &&
             event.filter.incidentTypeId == state.filter.incidentTypeId &&
+            event.filter.regionId == state.filter.regionId &&
+            event.filter.areaId == state.filter.areaId &&
             event.filter.locationCode == state.filter.locationCode &&
             event.filter.incidentNumber == state.filter.incidentNumber;
         final previous = sameRange ? state.incidents : <CapIncident>[];

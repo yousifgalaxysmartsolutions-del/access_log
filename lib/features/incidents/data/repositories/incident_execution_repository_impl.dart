@@ -55,8 +55,11 @@ class IncidentExecutionRepositoryImpl implements IncidentExecutionRepository {
         execution.selectedAction.flow == IncidentActionFlow.request) {
       return const FailureResult(ValidationFailure());
     }
-    if (execution.selectedAction.type != IncidentAction.assign) {
-      if ((execution.newStatusId ?? 0) <= 0) {
+    if (execution.selectedAction.flow != IncidentActionFlow.assign) {
+      final validStatus = execution.selectedAction.type == IncidentAction.unHold
+          ? execution.newStatusId == 0
+          : (execution.newStatusId ?? 0) > 0;
+      if (!validStatus) {
         return const FailureResult(ValidationFailure());
       }
       return forms.submit(execution.toStatusChange());

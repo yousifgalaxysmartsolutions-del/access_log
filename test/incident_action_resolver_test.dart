@@ -32,6 +32,11 @@ import 'package:access_log_plus/screens/incidents/incident_details_screen.dart';
 import 'package:access_log_plus/widgets/app_button.dart';
 import 'incident_lookup_test.dart' show fixture, MemoryStorage;
 import 'incident_details_general_tab_test.dart' show buildIncident;
+import 'incident_list_bloc_test.dart' show ListRepositoryFake, apiIncident;
+import 'package:access_log_plus/models/models.dart';
+import 'package:access_log_plus/screens/incidents/incident_list_screen.dart';
+import 'package:access_log_plus/widgets/cap_incident_card.dart';
+import 'package:access_log_plus/features/incidents/domain/usecases/get_incident_list_use_case.dart';
 
 class _NoRequirements implements IncidentActionConfigurationRepository {
   final ids = <int>[];
@@ -79,6 +84,7 @@ class _Details extends DemoIncidentDetailsRepository {
   Completer<Result<IncidentDetailsData>>? gate;
   IncidentDetailsData value = const IncidentDetailsData(
     status: IdNameDto(id: 2, name: 'Need Approval'),
+    assignedEngineer: IdNameDto(id: 4099, name: 'Engineer'),
   );
   @override
   Future<Result<IncidentDetailsData>> getIncidentDetails({
@@ -97,7 +103,10 @@ void main() {
   late IncidentActionResolverService resolver;
   setUp(() async {
     session = SessionManager(MemoryStorage());
-    await session.signIn(const SessionTokens('test', 'test'));
+    await session.signIn(
+      const SessionTokens('test', 'test'),
+      user: const SessionUser(id: '4099', userTypeEn: 'Engineer'),
+    );
     repository = _Lookup();
     store = IncidentLookupStore(GetIncidentLookupUseCase(repository), session);
     resolver = IncidentActionResolverService(store);
@@ -111,7 +120,7 @@ void main() {
 
   final expected = <int?, List<IncidentAction>>{
     1: [IncidentAction.assign, IncidentAction.cancel],
-    2: [IncidentAction.approve, IncidentAction.reject],
+    2: [IncidentAction.approve],
     3: [IncidentAction.hold, IncidentAction.interventionRequest],
     4: [
       IncidentAction.hold,
@@ -120,14 +129,70 @@ void main() {
     ],
     5: [IncidentAction.departureRequest],
     6: [],
-    7: [],
+    7: [IncidentAction.unHold],
     8: [],
     999: [],
     null: [],
   };
+  test(
+    'Need Approval permissions use login role and assigned engineer identity',
+    () {
+      final scenarios = [
+        (
+          const SessionUser(id: '4099', userTypeEn: 'Engineer'),
+          4099,
+          [IncidentAction.approve],
+        ),
+        (
+          const SessionUser(id: '4100', userTypeEn: 'Engineer'),
+          4099,
+          <IncidentAction>[],
+        ),
+        (
+          const SessionUser(id: '4099', userTypeEn: 'Engineer'),
+          null,
+          <IncidentAction>[],
+        ),
+        (
+          const SessionUser(id: '4086', userTypeEn: 'SuperVisior'),
+          4099,
+          [IncidentAction.reassign, IncidentAction.reject],
+        ),
+        (
+          const SessionUser(id: '4099', userTypeEn: 'SuperVisior'),
+          4099,
+          [IncidentAction.reassign, IncidentAction.reject],
+        ),
+        (const SessionUser(id: '4099'), 4099, <IncidentAction>[]),
+      ];
+      for (final (user, assignedId, expectedActions) in scenarios) {
+        final actions = resolver.resolve(
+          incidentStatusId: 2,
+          user: user,
+          assignedEngineerId: assignedId,
+        );
+        expect(actions.map((action) => action.type), expectedActions);
+        for (final action in actions) {
+          expect(
+            (action.actionTypeId, action.newStatusId),
+            switch (action.type) {
+              IncidentAction.approve => (3, 3),
+              IncidentAction.reject => (4, 1),
+              IncidentAction.reassign => (1, null),
+              _ => throw StateError('Unexpected action'),
+            },
+          );
+        }
+      }
+    },
+  );
   for (final entry in expected.entries) {
     test('status ${entry.key} resolves exact approved actions', () {
-      final actions = resolver.resolve(incidentStatusId: entry.key);
+      final actions = resolver.resolve(
+        incidentStatusId: entry.key,
+        user: session.user,
+        assignedEngineerId: 4099,
+      );
       expect(actions.map((a) => a.type), entry.value);
       for (final action in actions) {
         expect(
@@ -145,6 +210,24 @@ void main() {
       }
     });
   }
+
+  test(
+    'Un Hold is available only for Hold with the confirmed execution IDs',
+    () {
+      for (final status in expected.keys) {
+        final actions = resolver.resolve(incidentStatusId: status);
+        final unHold = actions.where(
+          (action) => action.type == IncidentAction.unHold,
+        );
+        expect(unHold.length, status == 7 ? 1 : 0);
+        if (status == 7) {
+          expect(unHold.single.actionTypeId, 10);
+          expect(unHold.single.newStatusId, 0);
+          expect(unHold.single.flow, IncidentActionFlow.actionType);
+        }
+      }
+    },
+  );
 
   test(
     'changed status and action IDs use latest codes, not names or fixed IDs',
@@ -245,7 +328,11 @@ void main() {
         app(
           Scaffold(
             bottomNavigationBar: IncidentActionArea(
-              actions: resolver.resolve(incidentStatusId: entry.key),
+              actions: resolver.resolve(
+                incidentStatusId: entry.key,
+                user: session.user,
+                assignedEngineerId: 4099,
+              ),
               onActionSelected: (_) {},
             ),
           ),
@@ -259,11 +346,52 @@ void main() {
     });
   }
 
+  for (final role in ['Engineer', 'SuperVisior']) {
+    testWidgets('real Need Approval details show only $role actions', (
+      tester,
+    ) async {
+      session.user = SessionUser(id: '4099', userTypeEn: role);
+      final details = _Details();
+      services.registerFactory<IncidentDetailsBloc>(
+        () => IncidentDetailsBloc(
+          getIncidentDetails: GetIncidentDetailsUseCase(details),
+          getIncidentTimeline: GetIncidentTimelineUseCase(details),
+          getIncidentRequests: GetIncidentRequestsUseCase(details),
+        ),
+      );
+      services.registerSingleton<SessionManager>(session);
+      services.registerSingleton<IncidentActionResolverService>(resolver);
+      await tester.pumpWidget(
+        app(IncidentDetailsScreen(incident: buildIncident())),
+      );
+      await tester.pumpAndSettle();
+      final area = find.byType(IncidentActionArea);
+      expect(
+        find.descendant(of: area, matching: find.text('Approve')),
+        role == 'Engineer' ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.descendant(of: area, matching: find.text('Reject')),
+        role == 'SuperVisior' ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.descendant(of: area, matching: find.text('Reassign')),
+        role == 'SuperVisior' ? findsOneWidget : findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   testWidgets(
     'callback receives complete resolved metadata, loading hides actions',
     (tester) async {
       IncidentAvailableAction? selected;
-      final actions = resolver.resolve(incidentStatusId: 2);
+      final actions = resolver.resolve(
+        incidentStatusId: 2,
+        user: session.user,
+        assignedEngineerId: 4099,
+      );
       await tester.pumpWidget(
         app(
           Scaffold(
@@ -325,6 +453,74 @@ void main() {
   });
 
   testWidgets(
+    'successful Un Hold returns to list and refreshes with existing filters',
+    (tester) async {
+      final repo = ListRepositoryFake()
+        ..result = Success([apiIncident(81, status: 'Hold')]);
+      final details = _Details()
+        ..value = const IncidentDetailsData(
+          status: IdNameDto(id: 7, name: 'Hold'),
+        );
+      services.registerSingleton<GetIncidentListUseCase>(
+        GetIncidentListUseCase(repo),
+      );
+      services.registerFactory<IncidentDetailsBloc>(
+        () => IncidentDetailsBloc(
+          getIncidentDetails: GetIncidentDetailsUseCase(details),
+          getIncidentTimeline: GetIncidentTimelineUseCase(details),
+          getIncidentRequests: GetIncidentRequestsUseCase(details),
+        ),
+      );
+      services.registerSingleton<IncidentActionResolverService>(resolver);
+      final configuration = _NoRequirements();
+      final executor = _UnusedExecution();
+      services.registerSingleton<IncidentExecutionUseCase>(
+        IncidentExecutionUseCase(executor),
+      );
+      services.registerSingleton<GetIncidentActionConfigurationUseCase>(
+        GetIncidentActionConfigurationUseCase(configuration),
+      );
+      services.registerSingleton<GetCapFormUseCase>(
+        GetCapFormUseCase(_UnusedForms()),
+      );
+      final filter = IncidentListFilter(
+        statusId: 7,
+        from: DateTime(2026, 9, 1),
+        to: DateTime(2026, 9, 30),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: IncidentListScreen(initialFilter: filter),
+          onGenerateRoute: (settings) => MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => IncidentDetailsScreen(
+              incident: settings.arguments! as CapIncident,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CapIncidentCard));
+      await tester.pumpAndSettle();
+      expect(find.byType(IncidentDetailsScreen), findsOneWidget);
+      repo.result = const Success([]);
+      await tester.tap(find.text('Un Hold'));
+      await tester.pumpAndSettle();
+      expect(configuration.ids, [10]);
+      expect(executor.executed.single.newStatusId, 0);
+      expect(find.byType(IncidentDetailsScreen), findsNothing);
+      expect(find.byType(IncidentListScreen), findsOneWidget);
+      expect(repo.calls.length, 2);
+      expect(repo.calls.last, (DateTime(2026, 9, 1), DateTime(2026, 9, 30)));
+      expect(repo.filters.last, same(filter));
+      expect(find.byType(CapIncidentCard), findsNothing);
+      expect(details.calls, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'real details drives action; null configuration skips requirements and refreshes after execution',
     (tester) async {
       final details = _Details()
@@ -336,6 +532,7 @@ void main() {
       );
       services.registerFactory<IncidentDetailsBloc>(() => bloc);
       services.registerSingleton<IncidentActionResolverService>(resolver);
+      services.registerSingleton<SessionManager>(session);
       final configuration = _NoRequirements();
       services.registerSingleton<IncidentExecutionRepository>(
         _UnusedExecution(),
@@ -364,7 +561,7 @@ void main() {
       );
       expect(
         find.descendant(of: area, matching: find.text('Reject')),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         find.descendant(of: area, matching: find.text('Hold')),

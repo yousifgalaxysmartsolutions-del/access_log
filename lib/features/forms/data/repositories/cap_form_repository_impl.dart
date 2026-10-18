@@ -5,6 +5,8 @@ import '../../../../core/network/cap/api_request_context.dart';
 import '../../../../core/network/cap/cap_locale_holder.dart';
 import '../../../../core/network/cap/general_response.dart';
 import '../../../../core/network/result.dart';
+import '../../../incidents/domain/actions/incident_available_action.dart'
+    show incidentUnHoldActionTypeId;
 import '../../domain/repositories/cap_form_repository.dart';
 import '../api/cap_form_api_service.dart';
 import '../models/cap_form_models.dart';
@@ -55,12 +57,15 @@ class CapFormRepositoryImpl implements CapFormRepository {
 
   @override
   Future<Result<void>> submit(IncidentFormSubmission submission) async {
+    final validStatus = submission.actionTypeId == incidentUnHoldActionTypeId
+        ? submission.newStatusId == 0
+        : submission.newStatusId > 0;
     if ([
-      if (submission.formId != null) submission.formId!,
-      submission.incidentId,
-      submission.actionTypeId,
-      submission.newStatusId,
-    ].any((id) => id <= 0)) {
+          if (submission.formId != null) submission.formId!,
+          submission.incidentId,
+          submission.actionTypeId,
+        ].any((id) => id <= 0) ||
+        !validStatus) {
       return const FailureResult(ValidationFailure());
     }
     final envelope = await _context.wrap(

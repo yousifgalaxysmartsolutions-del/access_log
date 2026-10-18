@@ -85,8 +85,8 @@
 //   }
 // }
 
-
 import '../../data/incident_lookup_store.dart';
+import '../../../../core/storage/secure_storage_service.dart';
 import 'incident_available_action.dart';
 
 class IncidentActionResolverService {
@@ -95,11 +95,45 @@ class IncidentActionResolverService {
 
   List<IncidentAvailableAction> resolve({
     required int? incidentStatusId,
+    SessionUser? user,
+    int? assignedEngineerId,
   }) {
     if (incidentStatusId == null) return const [];
+    if (incidentStatusId == 2) {
+      if (user?.isSupervisor == true) {
+        return const [
+          IncidentAvailableAction(
+            type: IncidentAction.reassign,
+            actionTypeId: 1,
+            newStatusId: null,
+            flow: IncidentActionFlow.assign,
+          ),
+          IncidentAvailableAction(
+            type: IncidentAction.reject,
+            actionTypeId: 4,
+            newStatusId: 1,
+            flow: IncidentActionFlow.actionType,
+          ),
+        ];
+      }
+      if (user?.isEngineer == true &&
+          assignedEngineerId != null &&
+          assignedEngineerId > 0 &&
+          user!.numericId == assignedEngineerId) {
+        return const [
+          IncidentAvailableAction(
+            type: IncidentAction.approve,
+            actionTypeId: 3,
+            newStatusId: 3,
+            flow: IncidentActionFlow.actionType,
+          ),
+        ];
+      }
+      return const [];
+    }
 
     return switch (incidentStatusId) {
-    // Need Assign
+      // Need Assign
       1 => const [
         IncidentAvailableAction(
           type: IncidentAction.assign,
@@ -115,23 +149,7 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // Need Approval
-      2 => const [
-        IncidentAvailableAction(
-          type: IncidentAction.approve,
-          actionTypeId: 3,
-          newStatusId: 3, // Pending
-          flow: IncidentActionFlow.actionType,
-        ),
-        IncidentAvailableAction(
-          type: IncidentAction.reject,
-          actionTypeId: 4,
-          newStatusId: 1, // Need Assign
-          flow: IncidentActionFlow.actionType,
-        ),
-      ],
-
-    // Pending
+      // Pending
       3 => const [
         IncidentAvailableAction(
           type: IncidentAction.hold,
@@ -147,7 +165,7 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // In Process
+      // In Process
       4 => const [
         IncidentAvailableAction(
           type: IncidentAction.hold,
@@ -169,7 +187,7 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // Completed
+      // Completed
       5 => const [
         IncidentAvailableAction(
           type: IncidentAction.departureRequest,
@@ -179,7 +197,17 @@ class IncidentActionResolverService {
         ),
       ],
 
-    // Cancelled / Hold / Rejected / Unknown
+      // Hold: the backend restores the previous status when NewStatusId is 0.
+      7 => const [
+        IncidentAvailableAction(
+          type: IncidentAction.unHold,
+          actionTypeId: incidentUnHoldActionTypeId,
+          newStatusId: 0,
+          flow: IncidentActionFlow.actionType,
+        ),
+      ],
+
+      // Cancelled / Rejected / Unknown
       _ => const [],
     };
   }

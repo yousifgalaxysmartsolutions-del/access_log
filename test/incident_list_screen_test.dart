@@ -18,6 +18,8 @@ import 'package:access_log_plus/screens/incidents/incident_list_screen.dart';
 import 'package:access_log_plus/widgets/cap_incident_card.dart';
 import 'package:access_log_plus/widgets/skeleton_shimmer.dart';
 import 'incident_list_bloc_test.dart' show ListRepositoryFake, apiIncident;
+import 'incident_report_test.dart' show ReportTestRepository;
+import 'package:access_log_plus/features/reports/domain/usecases/incident_report_use_cases.dart';
 
 void main() {
   late ListRepositoryFake repo;
@@ -29,6 +31,9 @@ void main() {
       ]);
     services.registerSingleton<GetIncidentListUseCase>(
       GetIncidentListUseCase(repo),
+    );
+    services.registerSingleton<GetReportLocationsUseCase>(
+      GetReportLocationsUseCase(ReportTestRepository()),
     );
   });
   tearDown(() async => services.reset());
@@ -94,23 +99,48 @@ void main() {
       await tester.tap(find.text('Filters'));
       await tester.pumpAndSettle();
       final dropdowns = find.byType(DropdownButtonFormField<int>);
-      expect(dropdowns, findsNWidgets(3));
+      expect(dropdowns, findsNWidgets(5));
       expect(
         tester
-            .widget<DropdownButton<int>>(find.byType(DropdownButton<int>).at(0))
+            .widget<DropdownButton<int>>(find.byType(DropdownButton<int>).at(2))
             .items!
             .map((item) => item.value),
         [-1, 72],
       );
       tester.widget<DropdownButtonFormField<int>>(dropdowns.at(0)).onChanged!(
-        72,
+        81,
       );
       await tester.pump();
       tester.widget<DropdownButtonFormField<int>>(dropdowns.at(1)).onChanged!(
-        82,
+        90,
+      );
+      await tester.pump();
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(0)).onChanged!(
+        79,
+      );
+      await tester.pump();
+      final areaDropdown = tester.widget<DropdownButton<int>>(
+        find.byType(DropdownButton<int>).at(1),
+      );
+      expect(areaDropdown.value, -1);
+      expect(areaDropdown.items!.map((item) => item.value), [-1, 103]);
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(0)).onChanged!(
+        81,
+      );
+      await tester.pump();
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(1)).onChanged!(
+        90,
       );
       await tester.pump();
       tester.widget<DropdownButtonFormField<int>>(dropdowns.at(2)).onChanged!(
+        72,
+      );
+      await tester.pump();
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(3)).onChanged!(
+        82,
+      );
+      await tester.pump();
+      tester.widget<DropdownButtonFormField<int>>(dropdowns.at(4)).onChanged!(
         31,
       );
       await tester.pump();
@@ -125,7 +155,11 @@ void main() {
       expect(repo.calls, hasLength(2));
       expect(repo.statusIds.last, 82);
       expect(repo.filters.last?.priorityId, 31);
+      expect(repo.filters.last?.regionId, 81);
+      expect(repo.filters.last?.areaId, 90);
       expect(repo.filters.last?.incidentTypeId, 72);
+      expect(repo.filters.last?.regionId, 81);
+      expect(repo.filters.last?.areaId, 90);
       expect(repo.filters.last?.locationCode, 'D10739');
       expect(repo.filters.last?.incidentNumber, 'INC-001');
       // The server response is authoritative, not filtered again by guessed enums.
@@ -139,6 +173,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(repo.statusIds.last, -1);
       expect(repo.filters.last?.priorityId, 31);
+      expect(repo.filters.last?.regionId, 81);
+      expect(repo.filters.last?.areaId, 90);
       await tester.tap(find.text('Filters'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Reset'));
@@ -148,6 +184,8 @@ void main() {
       expect(repo.filters.last?.incidentTypeId, isNull);
       expect(repo.filters.last?.locationCode, isNull);
       expect(repo.filters.last?.incidentNumber, isNull);
+      expect(repo.filters.last?.regionId, isNull);
+      expect(repo.filters.last?.areaId, isNull);
     },
   );
 

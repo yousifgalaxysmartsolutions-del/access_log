@@ -14,11 +14,17 @@ class LoginTokenData {
     this.refreshToken,
     this.lifetime,
     this.refreshExpiry,
+    this.userTypeEn,
+    this.userTypeAr,
   });
   @JsonKey(name: 'User_PK_ID')
   final int? id;
   @JsonKey(name: 'User_Name')
   final String? name;
+  @JsonKey(name: 'UserTypeEn')
+  final String? userTypeEn;
+  @JsonKey(name: 'UserTypeAr')
+  final String? userTypeAr;
   @JsonKey(name: 'User_MobileEnable')
   final bool? mobileEnable;
   @JsonKey(name: 'User_MobileActivationState')
@@ -59,11 +65,26 @@ class RefreshTokenRequestData implements CapPayload {
 }
 
 class AuthUser {
-  const AuthUser({required this.id, required this.name});
+  const AuthUser({
+    required this.id,
+    required this.name,
+    this.userTypeEn,
+    this.userTypeAr,
+  });
   final String id, name;
-  factory AuthUser.fromJson(Map<String, dynamic> json) =>
-      AuthUser(id: json['id'].toString(), name: json['name'] as String);
-  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+  final String? userTypeEn, userTypeAr;
+  factory AuthUser.fromJson(Map<String, dynamic> json) => AuthUser(
+    id: json['id'].toString(),
+    name: json['name'] as String,
+    userTypeEn: json['userTypeEn'] as String?,
+    userTypeAr: json['userTypeAr'] as String?,
+  );
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    if (userTypeEn != null) 'userTypeEn': userTypeEn,
+    if (userTypeAr != null) 'userTypeAr': userTypeAr,
+  };
 }
 
 class UserProfile {

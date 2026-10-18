@@ -72,6 +72,8 @@ class IncidentRepositoryImpl implements IncidentRepository {
             statusId: filter?.statusId ?? statusId,
             priorityId: filter?.priorityId ?? -1,
             incidentTypeId: filter?.incidentTypeId ?? -1,
+            regionId: filter?.regionId ?? -1,
+            areaId: filter?.areaId ?? -1,
             locationCode: filter?.locationCode ?? '',
             incidentNo: filter?.incidentNumber ?? '',
           ),

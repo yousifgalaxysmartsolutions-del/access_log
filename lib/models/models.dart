@@ -334,6 +334,8 @@ class IncidentListFilter {
     this.statusId,
     this.priorityId,
     this.incidentTypeId,
+    this.regionId,
+    this.areaId,
     this.locationCode,
     this.statusName,
     this.priority,
@@ -352,6 +354,7 @@ class IncidentListFilter {
   /// Exact ID from Incident Lookup; independent of the presentation enum.
   final int? statusId;
   final int? priorityId, incidentTypeId;
+  final int? regionId, areaId;
   final String? locationCode, statusName;
   final Priority? priority;
   final String? region, area, site, incidentNumber, type, location;
@@ -360,6 +363,8 @@ class IncidentListFilter {
   IncidentListFilter withoutStatus() => IncidentListFilter(
     priorityId: priorityId,
     incidentTypeId: incidentTypeId,
+    regionId: regionId,
+    areaId: areaId,
     locationCode: locationCode,
     priority: priority,
     region: region,
@@ -373,6 +378,8 @@ class IncidentListFilter {
   );
 
   bool get isActive =>
+      (regionId != null && regionId != -1) ||
+      (areaId != null && areaId != -1) ||
       priorityId != null ||
       incidentTypeId != null ||
       (locationCode?.isNotEmpty ?? false) ||

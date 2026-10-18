@@ -64,6 +64,8 @@ void main() {
       statusId: 8,
       priorityId: 21,
       incidentTypeId: 35,
+      regionId: 81,
+      areaId: 90,
       locationCode: 'D10739',
       incidentNumber: 'INC-001',
     );
@@ -73,6 +75,8 @@ void main() {
     expect(bloc.state.filter, same(filter));
     await bloc.load(day, day, filter: bloc.state.filter);
     expect(repo.filters.last?.priorityId, 21);
+    expect(repo.filters.last?.regionId, 81);
+    expect(repo.filters.last?.areaId, 90);
     expect(repo.filters.last?.incidentTypeId, 35);
     await bloc.load(day, day, filter: filter.withoutStatus());
     expect(repo.statusIds.last, -1);
@@ -81,6 +85,8 @@ void main() {
     expect(repo.filters.last?.priorityId, 21);
     await bloc.load(day, day);
     expect(repo.filters.last?.priorityId, isNull);
+    expect(repo.filters.last?.regionId, isNull);
+    expect(repo.filters.last?.areaId, isNull);
   });
   test(
     'Lookup status ID survives load and refresh; clearing resets to all',

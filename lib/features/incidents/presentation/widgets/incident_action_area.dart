@@ -94,6 +94,12 @@ class IncidentActionArea extends StatelessWidget {
         Icons.person_add_alt,
         AppButtonStyle.primary,
       ),
+      IncidentAction.reassign => (
+        'Reassign',
+        'إعادة إسناد',
+        Icons.manage_accounts_outlined,
+        AppButtonStyle.primary,
+      ),
       IncidentAction.cancel => (
         'Cancel',
         'إلغاء',
@@ -117,6 +123,12 @@ class IncidentActionArea extends StatelessWidget {
         'تعليق',
         Icons.pause,
         AppButtonStyle.outline,
+      ),
+      IncidentAction.unHold => (
+        'Un Hold',
+        'استئناف',
+        Icons.play_arrow_rounded,
+        AppButtonStyle.primary,
       ),
       IncidentAction.interventionRequest => (
         'New Request',

@@ -133,10 +133,12 @@ class _IncidentActionConfigurationScreenState
 
   String actionLabel(BuildContext context) => switch (widget.action.type) {
     IncidentAction.assign => context.tr('Continue', 'متابعة'),
+    IncidentAction.reassign => context.tr('Continue', 'متابعة'),
     IncidentAction.cancel => context.tr('Cancel incident', 'إلغاء البلاغ'),
     IncidentAction.approve => context.tr('Approve', 'موافقة'),
     IncidentAction.reject => context.tr('Reject', 'رفض'),
     IncidentAction.hold => context.tr('Put on hold', 'تعليق البلاغ'),
+    IncidentAction.unHold => context.tr('Un Hold', 'استئناف'),
     IncidentAction.complete => context.tr('Complete task', 'إكمال المهمة'),
     IncidentAction.interventionRequest ||
     IncidentAction.renewalRequest ||
@@ -192,7 +194,9 @@ class _IncidentActionConfigurationScreenState
           appBar: AppBar(
             title: Text(
               selecting
-                  ? context.tr('Assign incident', 'إسناد البلاغ')
+                  ? widget.action.type == IncidentAction.reassign
+                        ? context.tr('Reassign incident', 'إعادة إسناد البلاغ')
+                        : context.tr('Assign incident', 'إسناد البلاغ')
                   : coordinator.isRequest
                   ? context.tr('Request requirements', 'متطلبات الطلب')
                   : context.tr('Action requirements', 'متطلبات الإجراء'),

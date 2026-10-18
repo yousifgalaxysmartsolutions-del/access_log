@@ -164,8 +164,7 @@ class _RequestReadViewState extends State<_RequestReadView> {
     RequestActionKind kind,
   ) async {
     final bloc = context.read<RequestListBloc>();
-    if (bloc.state.actingRequestId != null ||
-        !canDecideRequest(item, bloc.state.lookupData)) {
+    if (bloc.state.actingRequestId != null || !bloc.canDecide(item)) {
       return;
     }
     final text = await showDialog<String>(
@@ -460,6 +459,9 @@ class _RequestReadViewState extends State<_RequestReadView> {
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, index) => RequestCard(
                       request: items[index],
+                      canDecide: context.read<RequestListBloc>().canDecide(
+                        items[index],
+                      ),
                       lookup: state.lookupData,
                       actionBusy: state.actingRequestId != null,
                       actingAction: state.actingRequestId == items[index].id
@@ -738,11 +740,13 @@ class RequestCard extends StatelessWidget {
     this.onReject,
     this.actionBusy = false,
     this.actingAction,
+    this.canDecide = false,
   });
   final RequestListItemDto request;
   final RequestLookupData? lookup;
   final VoidCallback? onApprove, onReject;
   final bool actionBusy;
+  final bool canDecide;
   final RequestActionKind? actingAction;
   @override
   Widget build(BuildContext context) {
@@ -861,7 +865,7 @@ class RequestCard extends StatelessWidget {
               ),
               const SizedBox(height: 7),
               _CardMeta(icon: Icons.notes, value: _value(request.remark)),
-              if (canDecideRequest(request, lookup)) ...[
+              if (canDecide && canDecideRequest(request, lookup)) ...[
                 const Divider(height: 27),
                 Row(
                   children: [

@@ -31,8 +31,13 @@ class _Bloc extends RequestListBloc {
         getRequestList: GetRequestListUseCase(_UnusedRepository()),
         approveRequest: ApproveRequestUseCase(_UnusedRepository()),
         rejectRequest: RejectRequestUseCase(_UnusedRepository()),
+        isSupervisor: () => true,
       );
   final events = <RequestListEvent>[];
+  bool supervisor = true;
+  @override
+  bool canDecide(RequestListItemDto item) =>
+      supervisor && super.canDecide(item);
   @override
   void add(RequestListEvent event) => events.add(event);
   void show(RequestListState value) => emit(value);
@@ -71,6 +76,16 @@ void main() {
     await tester.pump();
     await tester.pump();
   }
+
+  testWidgets('engineer cannot see decision buttons for pending requests', (
+    tester,
+  ) async {
+    bloc.supervisor = false;
+    await open(tester);
+    expect(find.byType(RequestCard), findsWidgets);
+    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Reject'), findsNothing);
+  });
 
   testWidgets('tab return resets request filters and clears search', (
     tester,

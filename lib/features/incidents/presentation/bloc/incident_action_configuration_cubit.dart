@@ -240,10 +240,12 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
       }.contains(state.stage);
   static bool supports(IncidentAvailableAction action) => const {
     IncidentAction.assign,
+    IncidentAction.reassign,
     IncidentAction.cancel,
     IncidentAction.approve,
     IncidentAction.reject,
     IncidentAction.hold,
+    IncidentAction.unHold,
     IncidentAction.complete,
     IncidentAction.interventionRequest,
     IncidentAction.renewalRequest,
@@ -627,7 +629,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     final revision = _revision;
     final original = state.stage;
     try {
-      if (action.type == IncidentAction.assign &&
+      if (action.flow == IncidentActionFlow.assign &&
           original == ActionConfigurationStage.readyToContinue) {
         emit(state.executionState(ActionConfigurationStage.loadingTeam));
         final result = await executor!.getTeam();
@@ -644,7 +646,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
             emit(state.executionState(original, failure: failure));
         }
       } else {
-        if (action.type == IncidentAction.assign &&
+        if (action.flow == IncidentActionFlow.assign &&
             !state.team.any((m) => m.id == state.execution!.assignedUserId)) {
           return;
         }

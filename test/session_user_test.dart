@@ -27,6 +27,25 @@ class _MemoryUsers implements SessionUserStorage {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'supervisor role persists and missing or engineer roles fail closed',
+    () {
+      for (final role in ['SuperVisior', 'Supervisor', ' supervision ']) {
+        final user = SessionUser.fromJson(
+          SessionUser(id: '4099', userTypeEn: role).toJson(),
+        );
+        expect(user.isSupervisor, true);
+        expect(user.userTypeEn, role);
+      }
+      for (final role in [null, '', 'Engineer', 'Admin', 'Unknown']) {
+        final user = SessionUser.fromJson(
+          SessionUser(id: '4099', userTypeEn: role).toJson(),
+        );
+        expect(user.isSupervisor, false);
+      }
+      expect(SessionUser.fromJson({'id': '4099'}).isSupervisor, false);
+    },
+  );
   final now = DateTime.utc(2026, 10, 4, 12);
   SessionTokens value({int accessSeconds = 3600, int refreshSeconds = 86400}) =>
       SessionTokens(

@@ -192,10 +192,12 @@ class RequestListBloc extends Bloc<RequestListEvent, RequestListState> {
     required ApproveRequestUseCase approveRequest,
     required RejectRequestUseCase rejectRequest,
     DateTime Function()? now,
+    bool Function()? isSupervisor,
   }) : _lookup = getRequestLookup,
        _list = getRequestList,
        _approve = approveRequest,
        _reject = rejectRequest,
+       _isSupervisor = isSupervisor,
        super(_initial((now ?? DateTime.now)())) {
     on<LoadRequestLookup>(_loadLookup);
     on<LoadRequests>((event, emit) async {
@@ -245,6 +247,10 @@ class RequestListBloc extends Bloc<RequestListEvent, RequestListState> {
   final GetRequestListUseCase _list;
   final ApproveRequestUseCase _approve;
   final RejectRequestUseCase _reject;
+  final bool Function()? _isSupervisor;
+
+  bool canDecide(RequestListItemDto item) =>
+      _isSupervisor?.call() == true && canDecideRequest(item, state.lookupData);
   int _lookupVersion = 0;
   int _queryVersion = 0;
 
@@ -256,7 +262,7 @@ class RequestListBloc extends Bloc<RequestListEvent, RequestListState> {
   ) async {
     if (state.actingRequestId != null) return;
     final row = state.items.where((item) => item.id == id).firstOrNull;
-    if (id <= 0 || row == null || !canDecideRequest(row, state.lookupData)) {
+    if (id <= 0 || row == null || !canDecide(row)) {
       emit(
         state.copyWith(
           actionFailure: const ValidationFailure(),

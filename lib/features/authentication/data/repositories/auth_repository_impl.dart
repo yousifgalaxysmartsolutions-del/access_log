@@ -41,7 +41,12 @@ class AuthRepositoryImpl implements AuthRepository {
     // login call instead of being returned and discarded.
     await session.signIn(
       parsed.tokens,
-      user: SessionUser(id: parsed.user.id, name: parsed.user.name),
+      user: SessionUser(
+        id: parsed.user.id,
+        name: parsed.user.name,
+        userTypeEn: parsed.user.userTypeEn,
+        userTypeAr: parsed.user.userTypeAr,
+      ),
       remember: remember,
     );
     return parsed.user;

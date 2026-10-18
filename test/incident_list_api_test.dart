@@ -118,6 +118,8 @@ void main() {
         expect(data['PriorityId'], 21);
         expect(data['LocationCode'], 'D10739');
         expect(data['IncidentNo'], 'INC-001');
+        expect(data['RegionId'], 81);
+        expect(data['AreaId'], 90);
         final page = data['Page'] as int;
         return {
           'resultcode': 1,
@@ -144,6 +146,8 @@ void main() {
           statusId: 8,
           priorityId: 21,
           incidentTypeId: 35,
+          regionId: 81,
+          areaId: 90,
           locationCode: 'D10739',
           incidentNumber: 'INC-001',
         ),

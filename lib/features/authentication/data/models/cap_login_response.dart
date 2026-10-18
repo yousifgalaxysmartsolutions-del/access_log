@@ -37,7 +37,12 @@ class CapLoginResponse {
       throw const FormatException('Invalid CAP login response');
     }
     return CapLoginResponse(
-      AuthUser(id: id.toString(), name: name),
+      AuthUser(
+        id: id.toString(),
+        name: name,
+        userTypeEn: parsed.userTypeEn,
+        userTypeAr: parsed.userTypeAr,
+      ),
       SessionTokens.fromResponse(
         access: parsed.accessToken,
         refresh: parsed.refreshToken,

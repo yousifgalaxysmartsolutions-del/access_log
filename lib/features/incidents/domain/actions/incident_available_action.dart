@@ -25,24 +25,23 @@
 //   final IncidentActionFlow flow;
 // }
 
+const incidentUnHoldActionTypeId = 10;
 
 enum IncidentAction {
   assign,
+  reassign,
   cancel,
   approve,
   reject,
   hold,
+  unHold,
   interventionRequest,
   renewalRequest,
   complete,
   departureRequest,
 }
 
-enum IncidentActionFlow {
-  assign,
-  actionType,
-  request,
-}
+enum IncidentActionFlow { assign, actionType, request }
 
 class IncidentAvailableAction {
   const IncidentAvailableAction({

@@ -16,6 +16,8 @@ LoginTokenData _$LoginTokenDataFromJson(Map<String, dynamic> json) =>
       refreshToken: json['RefreshToken'] as String?,
       lifetime: (json['AccessTokenExpiresInSeconds'] as num?)?.toInt(),
       refreshExpiry: json['RefreshTokenExpiresAtUtc'] as String?,
+      userTypeEn: json['UserTypeEn'] as String?,
+      userTypeAr: json['UserTypeAr'] as String?,
     );
 
 RefreshTokenData _$RefreshTokenDataFromJson(Map<String, dynamic> json) =>

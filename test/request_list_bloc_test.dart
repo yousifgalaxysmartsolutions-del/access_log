@@ -99,6 +99,7 @@ ApplyRequestFilters filter(int type, {DateTime? from, DateTime? to}) =>
 void main() {
   late _Repository repo;
   late RequestListBloc bloc;
+  var supervisor = true;
   Future<void> pending() async {
     bloc.add(filter(3));
     await tick();
@@ -293,15 +294,35 @@ void main() {
     );
   });
   setUp(() {
+    supervisor = true;
     repo = _Repository();
     bloc = RequestListBloc(
       getRequestLookup: GetRequestLookupUseCase(repo),
       getRequestList: GetRequestListUseCase(repo),
       approveRequest: ApproveRequestUseCase(repo),
       rejectRequest: RejectRequestUseCase(repo),
+      isSupervisor: () => supervisor,
       now: () => DateTime(2030, 4, 5, 18),
     );
   });
+  for (final approve in [true, false]) {
+    test(
+      'non-supervisor cannot dispatch ${approve ? "approve" : "reject"}',
+      () async {
+        await pending();
+        supervisor = false;
+        expect(bloc.canDecide(bloc.state.items.first), false);
+        bloc.add(
+          approve
+              ? const ApproveRequest(requestId: 1, remark: '')
+              : const RejectRequest(requestId: 1, reason: ''),
+        );
+        await tick();
+        expect(repo.actions, isEmpty);
+        expect(bloc.state.actionFailure, isNotNull);
+      },
+    );
+  }
   tearDown(() async {
     for (final gate in repo.decisions) {
       if (!gate.isCompleted) {

@@ -4,6 +4,7 @@ import '../../features/incidents/presentation/incident_action_configuration_scre
 import '../../features/incidents/presentation/bloc/incident_action_configuration_cubit.dart';
 import '../../features/incidents/presentation/incident_action_flow_factory.dart';
 import '../../core/di/injection.dart';
+import '../../core/session/session_manager.dart';
 import '../../features/incidents/domain/actions/incident_available_action.dart';
 import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
 import '../../features/incidents/presentation/widgets/incident_action_area.dart';
@@ -133,7 +134,30 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
   }
 
   bool _openingRequirements = false;
+  List<IncidentAvailableAction> _availableActions(IncidentDetailsState state) {
+    if (!services.isRegistered<IncidentActionResolverService>()) {
+      return const [];
+    }
+    final user = services.isRegistered<SessionManager>()
+        ? services<SessionManager>().user
+        : null;
+    return services<IncidentActionResolverService>().resolve(
+      incidentStatusId: state.generalData?.status?.id,
+      user: user,
+      assignedEngineerId: state.generalData?.assignedEngineer?.id,
+    );
+  }
+
   Future<void> _onIncidentActionSelected(IncidentAvailableAction action) async {
+    if (!_availableActions(detailsBloc.state).any(
+      (available) =>
+          available.type == action.type &&
+          available.actionTypeId == action.actionTypeId &&
+          available.newStatusId == action.newStatusId &&
+          available.flow == action.flow,
+    )) {
+      return;
+    }
     if (!IncidentActionConfigurationCubit.supports(action)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -237,6 +261,10 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
             ),
           ),
         );
+        if (action.type == IncidentAction.unHold) {
+          Navigator.of(context).pop(true);
+          return;
+        }
         _loadGeneral();
         _loadTimeline();
         _loadRelatedRequests();
@@ -436,14 +464,7 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
     bottomNavigationBar: BlocBuilder<IncidentDetailsBloc, IncidentDetailsState>(
       bloc: detailsBloc,
       builder: (context, state) {
-        final resolver = services.isRegistered<IncidentActionResolverService>()
-            ? services<IncidentActionResolverService>()
-            : null;
-        final actions =
-            resolver?.resolve(
-              incidentStatusId: state.generalData?.status?.id,
-            ) ??
-            const <IncidentAvailableAction>[];
+        final actions = _availableActions(state);
         return IncidentActionArea(
           actions: actions,
           loading: state.generalData == null && state.generalFailure == null,

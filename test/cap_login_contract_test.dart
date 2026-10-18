@@ -48,6 +48,8 @@ void main() {
     'data': {
       'User_PK_ID': 4099,
       'User_Name': 'engA',
+      'UserTypeEn': 'SuperVisior',
+      'UserTypeAr': 'مشرف',
       'User_MobileEnable': true,
       'User_MobileActivationState': true,
       'AccessToken': 'test-token',
@@ -63,6 +65,8 @@ void main() {
     final value = CapLoginResponse.parse(success(), 'different-input');
     expect(value.user.id, '4099');
     expect(value.user.name, 'engA');
+    expect(value.user.userTypeEn, 'SuperVisior');
+    expect(value.user.userTypeAr, 'مشرف');
     expect(value.tokens.accessToken, 'test-token');
     expect(value.tokens.refreshToken, 'test-refresh');
   });
@@ -122,6 +126,12 @@ void main() {
       );
       expect(persisted.refreshTokenExpiresAtUtc, isNotNull);
       expect((await store.readUser())!.id, '4099');
+      expect(session.user!.isSupervisor, true);
+      expect((await store.readUser())!.userTypeEn, 'SuperVisior');
+      final restored = SessionManager(store, store)..now = () => now;
+      await restored.restore();
+      expect(restored.user!.isSupervisor, true);
+      await restored.dispose();
       expect(adapter.requests.single.extra['public'], true);
       expect(
         adapter.requests.single.headers.containsKey('Authorization'),

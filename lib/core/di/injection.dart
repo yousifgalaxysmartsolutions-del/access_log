@@ -225,6 +225,7 @@ void registerRequestDependencies() {
       getRequestList: services<GetRequestListUseCase>(),
       approveRequest: services<ApproveRequestUseCase>(),
       rejectRequest: services<RejectRequestUseCase>(),
+      isSupervisor: () => services<SessionManager>().user?.isSupervisor == true,
     ),
   );
 }

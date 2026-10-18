@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../features/incidents/data/incident_lookup_store.dart';
 import '../../features/incidents/data/models/incident_lookup_models.dart';
+import '../../features/incidents/data/models/incident_details_models.dart';
+import '../../features/reports/domain/usecases/incident_report_use_cases.dart';
 import '../../core/network/result.dart';
 import '../../core/di/injection.dart';
 import '../../core/error/failure.dart';
@@ -113,8 +115,9 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
               filter.status == null ||
               incident.status == filter.status) &&
           (filter.priority == null || incident.priority == filter.priority) &&
-          contains(incident.region, filter.region) &&
-          contains(incident.area, filter.area) &&
+          (filter.regionId != null ||
+              contains(incident.region, filter.region)) &&
+          (filter.areaId != null || contains(incident.area, filter.area)) &&
           contains('${incident.siteName} ${incident.siteCode}', filter.site) &&
           contains(incident.type, filter.type) &&
           contains(incident.location, filter.location);
@@ -162,6 +165,8 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
           (updated.statusId ?? -1) != bloc.state.statusId ||
           updated.priorityId != bloc.state.filter.priorityId ||
           updated.incidentTypeId != bloc.state.filter.incidentTypeId ||
+          updated.regionId != bloc.state.filter.regionId ||
+          updated.areaId != bloc.state.filter.areaId ||
           updated.locationCode != bloc.state.filter.locationCode ||
           updated.incidentNumber != bloc.state.filter.incidentNumber) {
         await _load(from, to);
@@ -413,8 +418,11 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
   IncidentLookupData? lookup;
   bool lookupLoading = false;
   bool lookupFailed = false;
-  late final region = TextEditingController(text: widget.initial.region);
-  late final area = TextEditingController(text: widget.initial.area);
+  late int regionId = widget.initial.regionId ?? -1;
+  late int areaId = widget.initial.areaId ?? -1;
+  List<IncidentLocationDto> locations = const [];
+  bool locationsLoading = false;
+  bool locationsFailed = false;
   late final site = TextEditingController(text: widget.initial.locationCode);
   late final number = TextEditingController(
     text: widget.initial.incidentNumber,
@@ -433,6 +441,42 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
       lookup = services<IncidentLookupStore>().current;
     }
     if (lookup == null) unawaited(_loadLookup());
+    unawaited(_loadLocations());
+  }
+
+  Future<void> _loadLocations() async {
+    if (locationsLoading) return;
+    setState(() {
+      locationsLoading = true;
+      locationsFailed = false;
+    });
+    final result = services.isRegistered<GetReportLocationsUseCase>()
+        ? await services<GetReportLocationsUseCase>()()
+        : const FailureResult<List<IncidentLocationDto>>(ValidationFailure());
+    if (!mounted) return;
+    setState(() {
+      locationsLoading = false;
+      if (result is Success<List<IncidentLocationDto>>) {
+        locations = result.data;
+      } else {
+        locationsFailed = true;
+      }
+    });
+  }
+
+  List<IncidentLookupItem> _locationOptions({required bool regions}) {
+    final choices = <int, IncidentLookupItem>{};
+    for (final site in locations) {
+      if (!regions && regionId != -1 && site.region?.id != regionId) continue;
+      final item = regions ? site.region : site.area;
+      if (item?.id != null && item!.id! > 0) {
+        choices.putIfAbsent(
+          item.id!,
+          () => IncidentLookupItem(id: item.id, name: item.name),
+        );
+      }
+    }
+    return choices.values.toList();
   }
 
   Future<void> _loadLookup() async {
@@ -464,8 +508,9 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
     IconData icon,
     List<IncidentLookupItem> items,
     int selected,
-    ValueChanged<int> onChanged,
-  ) {
+    ValueChanged<int> onChanged, {
+    bool? enabled,
+  }) {
     final choices = <int, String>{
       -1: context.tr('All', 'الكل'),
       for (final item in items)
@@ -483,7 +528,7 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                 DropdownMenuItem(value: entry.key, child: Text(entry.value)),
           )
           .toList(),
-      onChanged: lookupLoading || lookupFailed
+      onChanged: !(enabled ?? (!lookupLoading && !lookupFailed))
           ? null
           : (value) => onChanged(value ?? -1),
     );
@@ -491,7 +536,7 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
 
   @override
   void dispose() {
-    for (final controller in [region, area, site, number, location]) {
+    for (final controller in [site, number, location]) {
       controller.dispose();
     }
     super.dispose();
@@ -587,24 +632,37 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                   ),
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
-              Row(
-                children: [
-                  Expanded(
-                    child: _Field(
-                      controller: region,
-                      label: context.tr('Region', 'الإقليم'),
-                      icon: Icons.public,
+              if (locationsLoading) const LinearProgressIndicator(),
+              if (locationsFailed)
+                TextButton.icon(
+                  onPressed: _loadLocations,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(
+                    context.tr(
+                      'Unable to load regions and areas. Retry',
+                      'تعذّر تحميل الأقاليم والمناطق. أعد المحاولة',
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _Field(
-                      controller: area,
-                      label: context.tr('Area', 'المنطقة'),
-                      icon: Icons.map_outlined,
-                    ),
-                  ),
-                ],
+                ),
+              _lookupField(
+                context.tr('Region', 'الإقليم'),
+                Icons.public,
+                _locationOptions(regions: true),
+                regionId,
+                (value) => setState(() {
+                  regionId = value;
+                  areaId = -1;
+                }),
+                enabled: !locationsLoading && !locationsFailed,
+              ),
+              const SizedBox(height: 12),
+              _lookupField(
+                context.tr('Area', 'المنطقة'),
+                Icons.map_outlined,
+                _locationOptions(regions: false),
+                areaId,
+                (value) => setState(() => areaId = value),
+                enabled: !locationsLoading && !locationsFailed,
               ),
               const SizedBox(height: 12),
               _Field(
@@ -706,8 +764,8 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                         incidentTypeId: incidentTypeId == -1
                             ? null
                             : incidentTypeId,
-                        region: region.text,
-                        area: area.text,
+                        regionId: regionId == -1 ? null : regionId,
+                        areaId: areaId == -1 ? null : areaId,
                         locationCode: site.text,
                         incidentNumber: number.text,
                         location: location.text,

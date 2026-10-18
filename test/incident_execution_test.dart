@@ -121,7 +121,17 @@ void main() {
   late CapFormRepositoryImpl forms;
   final resolver = IncidentActionResolverService(_UnusedLookup());
   IncidentAvailableAction action(int status, IncidentAction type) => resolver
-      .resolve(incidentStatusId: status)
+      .resolve(
+        incidentStatusId: status,
+        user: SessionUser(
+          id: '4099',
+          userTypeEn:
+              type == IncidentAction.reject || type == IncidentAction.reassign
+              ? 'SuperVisior'
+              : 'Engineer',
+        ),
+        assignedEngineerId: 4099,
+      )
       .singleWhere((a) => a.type == type);
   setUp(() {
     transport = _Transport();
@@ -289,6 +299,7 @@ void main() {
     (3, IncidentAction.hold, 8, 7),
     (4, IncidentAction.hold, 8, 7),
     (4, IncidentAction.complete, 9, 5),
+    (7, IncidentAction.unHold, 10, 0),
   ]) {
     test(
       '${entry.$2} null config uses resolver IDs ${entry.$3}/${entry.$4}',
@@ -308,6 +319,49 @@ void main() {
       },
     );
   }
+  test(
+    'supervisor reassign uses existing configuration, team and AssignIncident payload',
+    () async {
+      final selected = action(2, IncidentAction.reassign);
+      expect(selected.actionTypeId, 1);
+      expect(selected.newStatusId, isNull);
+      final cubit = flow(selected);
+      await cubit.start();
+      await cubit.continueExecution();
+      expect(cubit.state.stage, ActionConfigurationStage.selectingTeam);
+      cubit.selectMember(4100);
+      await cubit.continueExecution();
+      expect(transport.trace, [
+        'GetIncedientActionConfiguration',
+        'GetMyTeamUser',
+        'AssignIncident',
+      ]);
+      expect(
+        transport.payload('GetIncedientActionConfiguration')['ActionTypeId'],
+        1,
+      );
+      final sent = transport.payload('AssignIncident');
+      expect(sent['AssignedUserId'], 4100);
+      expect(sent['IncidentId'], 26);
+      expect(sent.containsKey('NewStatusId'), false);
+      expect(cubit.state.stage, ActionConfigurationStage.succeeded);
+    },
+  );
+  test('zero status is accepted only for Un Hold', () async {
+    for (final actionId in [2, 3, 4, 8, 9]) {
+      await forms.submit(
+        IncidentFormSubmission(
+          incidentId: 26,
+          actionTypeId: actionId,
+          newStatusId: 0,
+          formId: null,
+          remark: '',
+          answers: const [],
+        ),
+      );
+    }
+    expect(transport.calls, isEmpty);
+  });
   test(
     'Assign requirements with no form preserve GPS/photo and skip GetFormQuestion',
     () async {
