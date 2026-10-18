@@ -9,7 +9,9 @@
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Attach evidence selected by you to a form.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Fill a form location field only when you request your current location.</string>
+    <string>Access Log+ uses your location to fill form location fields and, when continuous tracking is enabled, to record your field activity.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Access Log+ records your location continuously, including in the background, so your field activity is logged while you work.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -57,6 +59,10 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

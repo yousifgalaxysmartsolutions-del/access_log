@@ -6,6 +6,8 @@ import 'core/session/session_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/routes/app_routes.dart';
 import 'core/theme/app_theme.dart';
+import 'features/gps_tracking/domain/gps_tracking_manager.dart';
+import 'features/gps_tracking/domain/gps_tracking_sync_service.dart';
 
 class AccessLogApp extends StatefulWidget {
   const AccessLogApp({super.key});
@@ -15,12 +17,14 @@ class AccessLogApp extends StatefulWidget {
   State<AccessLogApp> createState() => AccessLogAppState();
 }
 
-class AccessLogAppState extends State<AccessLogApp> {
+class AccessLogAppState extends State<AccessLogApp>
+    with WidgetsBindingObserver {
   final _navigator = GlobalKey<NavigatorState>();
   StreamSubscription<SessionStatus>? _sessionSubscription;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (services.isRegistered<SessionManager>()) {
       _sessionSubscription = services<SessionManager>().changes.listen((
         status,
@@ -30,13 +34,38 @@ class AccessLogAppState extends State<AccessLogApp> {
             AppRoutes.login,
             (_) => false,
           );
+          // Stop capture for a signed-out session; the next sign-in reconciles.
+          // Local GPS points are never deleted on sign-out.
+          if (services.isRegistered<GpsTrackingManager>()) {
+            unawaited(services<GpsTrackingManager>().stopTracking());
+          }
+        } else {
+          if (services.isRegistered<GpsTrackingManager>()) {
+            // Session restored/refreshed: reconcile tracking with configuration.
+            unawaited(services<GpsTrackingManager>().reconcile());
+          }
+          // New authenticated session: attempt to upload anything pending.
+          _requestGpsSync();
         }
       });
     }
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App reopened/foregrounded: a good moment to retry pending uploads.
+    if (state == AppLifecycleState.resumed) _requestGpsSync();
+  }
+
+  void _requestGpsSync() {
+    if (services.isRegistered<GpsTrackingSyncService>()) {
+      services<GpsTrackingSyncService>().requestSync();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _sessionSubscription?.cancel();
     super.dispose();
   }

@@ -12,5 +12,10 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    // Register the continuous background-tracking bridge. The native engine is
+    // a singleton and keeps running independently of this channel.
+    LocationBridge.shared.register(
+      messenger: engineBridge.applicationRegistrar.messenger()
+    )
   }
 }

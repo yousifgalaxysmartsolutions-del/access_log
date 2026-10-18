@@ -6,6 +6,7 @@ import '../../screens/component_showcase/component_showcase_screen.dart';
 import '../../screens/component_showcase/prototype_demo_screen.dart';
 import '../../screens/incidents/incident_details_screen.dart';
 import '../../screens/incidents/incident_list_screen.dart';
+import '../../features/gps_tracking/presentation/gps_tracking_status_screen.dart';
 import '../../models/models.dart';
 import '../di/injection.dart';
 import '../config/environment.dart';
@@ -22,6 +23,7 @@ abstract final class AppRoutes {
   static const prototypeDemo = '/prototype-demo';
   static const incidentList = '/incidents';
   static const incidentDetails = '/incident-details';
+  static const gpsTracking = '/gps-tracking';
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     if (services.isRegistered<SessionManager>() &&
         !services<AppEnvironment>().mockAuthentication &&
@@ -54,6 +56,7 @@ abstract final class AppRoutes {
       incidentDetails => IncidentDetailsScreen(
         incident: settings.arguments! as CapIncident,
       ),
+      gpsTracking => const GpsTrackingStatusScreen(),
       _ => const LoginScreen(),
     };
     return PageRouteBuilder(

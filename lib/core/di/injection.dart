@@ -87,6 +87,17 @@ import '../../features/forms/domain/repositories/cap_form_repository.dart';
 import '../../features/forms/domain/usecases/cap_form_use_cases.dart';
 import '../../features/forms/presentation/bloc/cap_form_cubit.dart';
 
+import '../../features/gps_tracking/data/api/gps_tracking_api_service.dart';
+import '../../features/gps_tracking/data/local/local_gps_store.dart';
+import '../../features/gps_tracking/data/native/method_channel_background_location_service.dart';
+import '../../features/gps_tracking/data/repositories/gps_tracking_sync_repository_impl.dart';
+import '../../features/gps_tracking/domain/background_location_service.dart';
+import '../../features/gps_tracking/domain/connectivity_service.dart';
+import '../../features/gps_tracking/domain/gps_tracking_manager.dart';
+import '../../features/gps_tracking/domain/gps_tracking_sync_service.dart';
+import '../../features/gps_tracking/domain/repositories/gps_tracking_sync_repository.dart';
+import '../../features/gps_tracking/presentation/gps_tracking_cubit.dart';
+
 final services = GetIt.instance;
 Future<void> configureDependencies({
   AppEnvironment? environment,
@@ -173,6 +184,7 @@ Future<void> configureDependencies({
   registerRequestDependencies();
   registerFormDependencies();
   registerIncidentActionConfigurationDependencies();
+  registerGpsTrackingDependencies();
   final auth = services<AuthRepository>();
   dio.interceptors.add(AuthInterceptor(dio, session, auth.refresh));
   // Finish restoration before runApp chooses its initial authenticated route.
@@ -492,6 +504,57 @@ void registerIncidentActionConfigurationDependencies() {
   services.registerLazySingleton<GetIncidentActionConfigurationUseCase>(
     () => GetIncidentActionConfigurationUseCase(
       services<IncidentActionConfigurationRepository>(),
+    ),
+  );
+}
+
+/// Registers the continuous background-tracking graph.
+///
+/// The engine itself is native; these registrations are the Flutter-side
+/// bridge plus local store reader. Nothing is invoked at setup time, so tests
+/// that only call [configureDependencies] stay side-effect free.
+void registerGpsTrackingDependencies() {
+  if (services.isRegistered<GpsTrackingManager>()) return;
+  services.registerLazySingleton<BackgroundLocationService>(
+    MethodChannelBackgroundLocationService.new,
+  );
+  services.registerLazySingleton<LocalGpsStore>(LocalGpsStore.new);
+  services.registerLazySingleton<GpsTrackingManager>(
+    () => GpsTrackingManager(
+      services<BackgroundLocationService>(),
+      services<SystemGpsConfigurationRepository>(),
+    ),
+    dispose: (manager) => manager.dispose(),
+  );
+
+  // Server-sync graph. Separate from the tracking engine so an API failure can
+  // never stop capture; nothing runs until a trigger calls the service.
+  services.registerLazySingleton<GpsTrackingApiService>(
+    () => GpsTrackingApiService(services<Dio>()),
+  );
+  services.registerLazySingleton<GpsTrackingSyncRepository>(
+    () => GpsTrackingSyncRepositoryImpl(
+      services<GpsTrackingApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<ConnectivityService>(() {
+    final host = Uri.tryParse(services<AppEnvironment>().apiUrl)?.host ?? '';
+    return InternetConnectivityService(host: host);
+  });
+  services.registerLazySingleton<GpsTrackingSyncService>(
+    () => GpsTrackingSyncService(
+      store: services<LocalGpsStore>(),
+      repository: services<GpsTrackingSyncRepository>(),
+      connectivity: services<ConnectivityService>(),
+      session: services<SessionManager>(),
+    ),
+    dispose: (service) => service.dispose(),
+  );
+  services.registerFactory<GpsTrackingCubit>(
+    () => GpsTrackingCubit(
+      services<GpsTrackingManager>(),
+      sync: services<GpsTrackingSyncService>(),
     ),
   );
 }

@@ -745,6 +745,16 @@ class MoreHubScreen extends StatelessWidget {
             ),
             const Divider(height: 1, indent: 62),
             _MenuTile(
+              icon: Icons.gps_fixed,
+              title: context.tr('GPS Tracking', 'تتبع الموقع'),
+              subtitle: context.tr(
+                'Continuous location capture status',
+                'حالة التقاط الموقع المستمر',
+              ),
+              onTap: () => Navigator.pushNamed(context, AppRoutes.gpsTracking),
+            ),
+            const Divider(height: 1, indent: 62),
+            _MenuTile(
               icon: Icons.map_outlined,
               title: context.tr('Tower Map', 'خريطة الأبراج'),
               subtitle: context.tr(

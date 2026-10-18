@@ -44,6 +44,7 @@ migrate_working_dir/
 # Local File Provider / Gradle recovery caches
 /android/.gradle
 /android/.gradle.fileprovider-backup/
+/android/.kotlin/
 
 # File Provider duplicate generated iOS files
 /ios/Flutter/Generated*.xcconfig

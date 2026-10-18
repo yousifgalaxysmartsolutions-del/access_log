@@ -39,6 +39,11 @@ android {
     }
 }
 
+dependencies {
+    // FusedLocationProviderClient for continuous native location updates.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+}
+
 flutter {
     source = "../.."
 }
