@@ -308,6 +308,38 @@ void main() {
     },
   );
 
+  testWidgets('Location is hidden and ignored; location code stays available', (
+    tester,
+  ) async {
+    await open(
+      tester,
+      filter: const IncidentListFilter(
+        location: 'non-matching legacy location',
+      ),
+    );
+    expect(find.byType(CapIncidentCard), findsNWidgets(2));
+    await tester.tap(find.text('Filters'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.labelText == 'Location',
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.labelText == 'Location code',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Apply Filters'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CapIncidentCard), findsNWidgets(2));
+  });
+
   testWidgets('today loads once; search locally; real ID navigates', (
     tester,
   ) async {

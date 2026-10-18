@@ -26,6 +26,7 @@ import 'package:access_log_plus/features/forms/data/models/cap_form_models.dart'
 import 'package:access_log_plus/features/forms/domain/repositories/cap_form_repository.dart';
 import 'package:access_log_plus/features/forms/domain/usecases/cap_form_use_cases.dart';
 import 'package:access_log_plus/features/forms/presentation/bloc/cap_form_cubit.dart';
+import 'package:access_log_plus/features/forms/presentation/widgets/cap_dynamic_form.dart';
 
 class _Actions implements IncidentActionConfigurationRepository {
   @override
@@ -211,7 +212,6 @@ void main() {
   late _Forms forms;
   late IncidentActionConfigurationCubit flow;
   var gpsCalls = 0, photoCalls = 0;
-  var elapsed = Duration.zero;
   IncidentActionConfigurationCubit build({
     int? status,
     IncidentAction type = IncidentAction.interventionRequest,
@@ -230,7 +230,6 @@ void main() {
       getConfiguration: GetIncidentActionConfigurationUseCase(_Actions()),
       requestExecutor: IncidentRequestUseCase(requests),
       requestNewStatusId: status,
-      formElapsed: () => elapsed,
       form: CapFormCubit(GetCapFormUseCase(forms)),
       getLocation: () async {
         gpsCalls++;
@@ -256,7 +255,6 @@ void main() {
     requests = _Requests();
     forms = _Forms();
     gpsCalls = photoCalls = 0;
-    elapsed = Duration.zero;
   });
 
   test(
@@ -302,6 +300,77 @@ void main() {
       expect(requests.calls, hasLength(1));
     },
   );
+  for (final locale in ['en', 'ar']) {
+    testWidgets(
+      'manual request minutes accept digits only and preserve retry in $locale',
+      (tester) async {
+        requests.configuration = const RequestConfiguration(
+          gpsRequired: false,
+          photoRequiredLevel: 0,
+        );
+        flow = build(status: 1);
+        await tester.runAsync(flow.start);
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: Locale(locale),
+            supportedLocales: const [Locale('en'), Locale('ar')],
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            home: IncidentActionConfigurationScreen(
+              action: flow.action,
+              incidentId: 17,
+              coordinator: flow,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final minutes = find.byKey(const ValueKey('request-minutes'));
+        await tester.ensureVisible(minutes);
+        await tester.pumpAndSettle();
+        await tester.enterText(minutes, '12abc.3-');
+        await tester.pumpAndSettle();
+        expect(flow.state.minutesInput, '123');
+        expect(flow.requestExecution!.noOfMinute, 123);
+        await tester.pump(const Duration(minutes: 10));
+        expect(flow.requestExecution!.noOfMinute, 123);
+        requests.fail = true;
+        final button = find.byKey(const ValueKey('requirements-continue'));
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(requests.calls.single.toJson()['NoOfMinute'], 123);
+        expect(flow.state.minutesInput, '123');
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(requests.calls.last.noOfMinute, 123);
+        await tester.ensureVisible(minutes);
+        await tester.enterText(minutes, '45');
+        await tester.pumpAndSettle();
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(requests.calls.last.noOfMinute, 45);
+        expect(tester.takeException(), isNull);
+        await tester.runAsync(flow.close);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+  test('manual minutes validate integers and clearing restores zero', () async {
+    requests.configuration = const RequestConfiguration(
+      gpsRequired: false,
+      photoRequiredLevel: 0,
+    );
+    flow = build(status: 1);
+    await flow.start();
+    for (final invalid in ['-1', '1.5', 'abc', '999999999999999999999999999']) {
+      flow.setMinutes(invalid);
+      expect(flow.state.minutesValid, false);
+      await flow.continueExecution();
+      expect(requests.calls, isEmpty);
+    }
+    flow.setMinutes('0');
+    expect(flow.state.minutesValid, true);
+    flow.setMinutes('');
+    expect(flow.requestExecution!.noOfMinute, 0);
+  });
   for (final formId in [null, '', '   ']) {
     test(
       'No form ($formId), GPS false, hidden photo skips all collections',
@@ -362,7 +431,12 @@ void main() {
         expect(requests.calls, isEmpty);
         expect(flow.form.state.errors[702], CapFormError.required);
         expect(FocusManager.instance.primaryFocus?.debugLabel, 'question-702');
-        final field = find.byType(TextFormField).first;
+        final field = find
+            .descendant(
+              of: find.byType(CapDynamicForm),
+              matching: find.byType(TextFormField),
+            )
+            .first;
         expect(tester.getRect(field).top, greaterThanOrEqualTo(0));
         await tester.enterText(field, 'filled serial');
         await tester.pumpAndSettle();
@@ -465,7 +539,7 @@ void main() {
         ),
       ]);
       await Future<void>.delayed(Duration.zero);
-      elapsed = const Duration(minutes: 7, seconds: 25);
+      flow.setMinutes('7');
       requests.fail = true;
       requests.gate = Completer<void>();
       final first = flow.continueExecution();
@@ -474,7 +548,6 @@ void main() {
       requests.gate!.complete();
       await first;
       expect(flow.state.executionFailure, isNotNull);
-      elapsed = const Duration(minutes: 12);
       requests.fail = false;
       requests.gate = null;
       await flow.continueExecution();

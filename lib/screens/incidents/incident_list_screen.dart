@@ -119,8 +119,7 @@ class _IncidentListScreenState extends State<IncidentListScreen> {
               contains(incident.region, filter.region)) &&
           (filter.areaId != null || contains(incident.area, filter.area)) &&
           contains('${incident.siteName} ${incident.siteCode}', filter.site) &&
-          contains(incident.type, filter.type) &&
-          contains(incident.location, filter.location);
+          contains(incident.type, filter.type);
     }).toList();
     switch (sort) {
       case IncidentSort.newest:
@@ -427,7 +426,6 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
   late final number = TextEditingController(
     text: widget.initial.incidentNumber,
   );
-  late final location = TextEditingController(text: widget.initial.location);
   DateTime? from;
   DateTime? to;
   bool invalidRange = false;
@@ -536,7 +534,7 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
 
   @override
   void dispose() {
-    for (final controller in [site, number, location]) {
+    for (final controller in [site, number]) {
       controller.dispose();
     }
     super.dispose();
@@ -714,12 +712,6 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                 priorityId,
                 (value) => setState(() => priorityId = value),
               ),
-              const SizedBox(height: 12),
-              _Field(
-                controller: location,
-                label: context.tr('Location', 'الموقع'),
-                icon: Icons.location_on_outlined,
-              ),
             ],
           ),
         ),
@@ -768,7 +760,6 @@ class _IncidentFilterSheetState extends State<IncidentFilterSheet> {
                         areaId: areaId == -1 ? null : areaId,
                         locationCode: site.text,
                         incidentNumber: number.text,
-                        location: location.text,
                         from: from,
                         to: to,
                       ),

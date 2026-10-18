@@ -127,6 +127,12 @@ class IncidentActionResolverService {
             newStatusId: 3,
             flow: IncidentActionFlow.actionType,
           ),
+          IncidentAvailableAction(
+            type: IncidentAction.reject,
+            actionTypeId: 4,
+            newStatusId: 1,
+            flow: IncidentActionFlow.actionType,
+          ),
         ];
       }
       return const [];

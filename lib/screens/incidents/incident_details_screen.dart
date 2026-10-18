@@ -23,7 +23,6 @@ import '../../widgets/cap_incident_card.dart';
 import '../../widgets/info_row.dart';
 import '../../widgets/section_card.dart';
 import '../../widgets/skeleton_shimmer.dart';
-import 'active_intervention_screen.dart';
 
 /// Tab indexes. General and Related Requests read real API data; Timeline is
 /// still mock-backed because its payload is unknown.
@@ -337,15 +336,15 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
               ),
             ),
             if (status == CapIncidentStatus.inProcess)
-              ActiveInterventionIndicator(
-                incident: widget.incident,
-                margin: EdgeInsets.fromLTRB(
-                  14,
-                  constraints.maxHeight < 500 ? 4 : 10,
-                  14,
-                  0,
-                ),
-              ),
+              // ActiveInterventionIndicator(
+              //   incident: widget.incident,
+              //   margin: EdgeInsets.fromLTRB(
+              //     14,
+              //     constraints.maxHeight < 500 ? 4 : 10,
+              //     14,
+              //     0,
+              //   ),
+              // ),
             if (status == CapIncidentStatus.inProcess &&
                 constraints.maxHeight >= 720 &&
                 !largeText)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../requests/domain/usecases/incident_request_use_case.dart';
 import '../../../core/localization/app_strings.dart';
@@ -43,6 +44,8 @@ class _IncidentActionConfigurationScreenState
   final _dynamicFormKey = GlobalKey<CapDynamicFormState>();
   final _locationKey = GlobalKey();
   final _photoKey = GlobalKey();
+  final _minutesKey = GlobalKey();
+  final _minutesFocus = FocusNode();
   bool _validating = false;
 
   Future<void> submitRequest() async {
@@ -69,6 +72,18 @@ class _IncidentActionConfigurationScreenState
         );
         final target =
             (missingLocation ? _locationKey : _photoKey).currentContext;
+        if (target != null) {
+          await Scrollable.ensureVisible(
+            target,
+            alignment: 0.1,
+            duration: const Duration(milliseconds: 250),
+          );
+        }
+        return;
+      }
+      if (coordinator.isRequest && !state.minutesValid) {
+        _minutesFocus.requestFocus();
+        final target = _minutesKey.currentContext;
         if (target != null) {
           await Scrollable.ensureVisible(
             target,
@@ -127,6 +142,7 @@ class _IncidentActionConfigurationScreenState
 
   @override
   void dispose() {
+    _minutesFocus.dispose();
     coordinator.close();
     super.dispose();
   }
@@ -448,6 +464,44 @@ class _IncidentActionConfigurationScreenState
                                       ],
                                     ),
                                   ],
+                                ),
+                              ),
+                            if (coordinator.isRequest)
+                              _RequirementCard(
+                                key: _minutesKey,
+                                title: context.tr(
+                                  'Number of minutes',
+                                  'عدد الدقائق',
+                                ),
+                                icon: Icons.timer_outlined,
+                                required: false,
+                                completed:
+                                    state.minutesInput.isNotEmpty &&
+                                    state.minutesValid,
+                                child: TextFormField(
+                                  key: const ValueKey('request-minutes'),
+                                  focusNode: _minutesFocus,
+                                  initialValue: state.minutesInput,
+                                  keyboardType: TextInputType.number,
+                                  textDirection: TextDirection.ltr,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  onChanged: coordinator.setMinutes,
+                                  decoration: InputDecoration(
+                                    hintText: '0',
+                                    helperText: context.tr(
+                                      'Digits only. Leave empty to send 0.',
+                                      'أرقام فقط. إذا تُرك فارغًا تُرسل القيمة 0.',
+                                    ),
+                                    errorText: state.minutesValid
+                                        ? null
+                                        : context.tr(
+                                            'Enter a valid whole number',
+                                            'أدخل عددًا صحيحًا صالحًا',
+                                          ),
+                                    border: const OutlineInputBorder(),
+                                  ),
                                 ),
                               ),
                             if (showRemark || state.remark.isNotEmpty)

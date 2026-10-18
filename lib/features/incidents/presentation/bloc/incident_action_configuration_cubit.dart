@@ -77,6 +77,7 @@ class ActionConfigurationState {
     this.locationFailure,
     this.photoFailure,
     this.remark = '',
+    this.minutesInput = '',
     this.requirementsValid = false,
   });
   final ActionConfigurationStage stage;
@@ -91,6 +92,12 @@ class ActionConfigurationState {
   final bool locationBusy, photoBusy, requirementsValid;
   final Failure? locationFailure, photoFailure;
   final String remark;
+  final String minutesInput;
+  int? get noOfMinute => minutesInput.isEmpty ? 0 : int.tryParse(minutesInput);
+  bool get minutesValid =>
+      RegExp(r'^[0-9]*$').hasMatch(minutesInput) &&
+      noOfMinute != null &&
+      noOfMinute! >= 0;
   bool get requiresLocation => configuration?.gpsRequired ?? false;
   bool get requiresPhoto => configuration?.photoRequiredLevel == 1;
   bool get showsPhoto =>
@@ -116,6 +123,7 @@ class ActionConfigurationState {
     Object? locationFailure = _unchanged,
     Object? photoFailure = _unchanged,
     String? remark,
+    String? minutesInput,
     bool? requirementsValid,
     List<CapFormAnswer>? answers,
   }) => ActionConfigurationState(
@@ -143,6 +151,7 @@ class ActionConfigurationState {
         ? this.photoFailure
         : photoFailure as Failure?,
     remark: remark ?? this.remark,
+    minutesInput: minutesInput ?? this.minutesInput,
     requirementsValid: requirementsValid ?? this.requirementsValid,
   );
   ActionConfigurationState executionState(
@@ -164,6 +173,7 @@ class ActionConfigurationState {
     locationFailure: locationFailure,
     photoFailure: photoFailure,
     remark: remark,
+    minutesInput: minutesInput,
     requirementsValid: requirementsValid,
   );
 }
@@ -181,9 +191,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     this.requestExecutor,
     this.requestNewStatusId,
     this.validateLocation,
-    Duration Function()? formElapsed,
   }) : super(const ActionConfigurationState(ActionConfigurationStage.initial)) {
-    _formElapsed = formElapsed ?? (() => _formTimer.elapsed);
     _formSubscription = form.stream.listen((_) => _syncRequirements());
   }
   final IncidentAvailableAction action;
@@ -200,9 +208,6 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
 
   /// Shared preflight/rerefresh gate supplied by the route composition.
   final Future<Result<void>> Function(String location)? validateLocation;
-  final Stopwatch _formTimer = Stopwatch();
-  late final Duration Function() _formElapsed;
-  int? _submittedMinutes;
   bool get isRequest => action.flow == IncidentActionFlow.request;
   bool get submissionBlocked =>
       isRequest && (requestNewStatusId == null || requestNewStatusId! <= 0);
@@ -221,9 +226,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
       photo: input.photo,
       questionFormId: input.questionFormId,
       answers: input.answers,
-      noOfMinute: state.requiresForm
-          ? (_submittedMinutes ?? _formElapsed().inMinutes)
-          : 0,
+      noOfMinute: state.noOfMinute ?? 0,
     );
   }
 
@@ -383,7 +386,6 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
         return;
       }
       stage(ActionConfigurationStage.formReady);
-      if (isRequest && !_formTimer.isRunning) _formTimer.start();
     } on Exception catch (error) {
       stage(
         ActionConfigurationStage.failure,
@@ -407,6 +409,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
         !state.unknownPhotoPolicy &&
         (!state.requiresLocation || _validLocation(state.location)) &&
         (!state.requiresPhoto || (state.photo?.bytes.isNotEmpty ?? false)) &&
+        (!isRequest || state.minutesValid) &&
         answers != null;
     final execution = !valid || incidentId == null
         ? null
@@ -563,9 +566,6 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     );
     await form.load(formId);
     if (isClosed) return;
-    if (isRequest && form.state.form != null && !_formTimer.isRunning) {
-      _formTimer.start();
-    }
     emit(state.requirementsState(stage: ActionConfigurationStage.formReady));
     _syncRequirements();
   }
@@ -573,6 +573,12 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
   void completeForm() {
     if (!_editingRequirements) return;
     if (state.requiresForm) form.confirmedAnswers(forSubmission: false);
+    _syncRequirements();
+  }
+
+  void setMinutes(String value) {
+    if (!isRequest || !_editingRequirements || _running) return;
+    emit(state.requirementsState(minutesInput: value));
     _syncRequirements();
   }
 
@@ -682,8 +688,6 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
     }
     final input = requestExecution;
     if (input == null) return;
-    _submittedMinutes ??= input.noOfMinute;
-    _formTimer.stop();
     _running = true;
     final revision = _revision;
     emit(state.executionState(ActionConfigurationStage.submitting));
@@ -729,7 +733,6 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
   Future<void> close() {
     if (_closing != null) return _closing!;
     _revision++;
-    _formTimer.stop();
     // Mark both cubits closed immediately, including when a route disposes them.
     return _closing = Future.wait<void>([
       _formSubscription.cancel(),
