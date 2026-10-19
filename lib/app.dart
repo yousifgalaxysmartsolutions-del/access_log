@@ -6,8 +6,10 @@ import 'core/session/session_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/routes/app_routes.dart';
 import 'core/theme/app_theme.dart';
+import 'features/gps_tracking/domain/gps_requirement_gate.dart';
 import 'features/gps_tracking/domain/gps_tracking_manager.dart';
 import 'features/gps_tracking/domain/gps_tracking_sync_service.dart';
+import 'features/gps_tracking/presentation/gps_gate_guard.dart';
 
 class AccessLogApp extends StatefulWidget {
   const AccessLogApp({super.key});
@@ -40,10 +42,9 @@ class AccessLogAppState extends State<AccessLogApp>
             unawaited(services<GpsTrackingManager>().stopTracking());
           }
         } else {
-          if (services.isRegistered<GpsTrackingManager>()) {
-            // Session restored/refreshed: reconcile tracking with configuration.
-            unawaited(services<GpsTrackingManager>().reconcile());
-          }
+          // Session restored/refreshed: the app-level GPS requirement must be
+          // satisfied again. The gate reconciles native tracking internally.
+          _requestGpsRequirementReconcile();
           // New authenticated session: attempt to upload anything pending.
           _requestGpsSync();
         }
@@ -53,8 +54,17 @@ class AccessLogAppState extends State<AccessLogApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // App reopened/foregrounded: a good moment to retry pending uploads.
-    if (state == AppLifecycleState.resumed) _requestGpsSync();
+    if (state != AppLifecycleState.resumed) return;
+    // App reopened/foregrounded: re-check the GPS requirements (configuration,
+    // permissions, Location Services, tracker) and retry pending uploads.
+    _requestGpsRequirementReconcile();
+    _requestGpsSync();
+  }
+
+  void _requestGpsRequirementReconcile() {
+    if (services.isRegistered<GpsRequirementGate>()) {
+      unawaited(services<GpsRequirementGate>().reconcile());
+    }
   }
 
   void _requestGpsSync() {
@@ -105,6 +115,10 @@ class AccessLogAppState extends State<AccessLogApp>
       darkTheme: AppTheme.dark(),
       themeMode: _themeMode,
       onGenerateRoute: AppRoutes.onGenerateRoute,
+      // One centralized GPS requirement gate for the whole app. It is
+      // presentation-only and inert when the tracking graph is not registered.
+      builder: (context, child) =>
+          GpsGateGuard(child: child ?? const SizedBox.shrink()),
     );
   }
 }

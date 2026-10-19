@@ -16,6 +16,7 @@ object GpsTrackingConstants {
     const val APPLY_CONFIGURATION = "applyConfiguration"
     const val GET_PERMISSION_STATUS = "getPermissionStatus"
     const val REQUEST_PERMISSIONS = "requestPermissions"
+    const val OPEN_LOCATION_SETTINGS = "openLocationSettings"
 
     const val ARG_CONTINUOUS = "continuousGpsTracking"
     const val ARG_INTERVAL_MINUTES = "periodicGpsCaptureIntervalMinutes"
@@ -30,6 +31,7 @@ object GpsTrackingConstants {
     const val EVENT_TRACKING_STOPPED = "trackingStopped"
     const val EVENT_PERMISSION_CHANGED = "permissionChanged"
     const val EVENT_SERVICES_DISABLED = "locationServicesDisabled"
+    const val EVENT_LOCATION_CAPTURED = "locationCaptured"
     const val EVENT_ERROR = "trackingError"
 
     const val PERMISSION_NOT_DETERMINED = "notDetermined"

@@ -93,6 +93,8 @@ import '../../features/gps_tracking/data/native/method_channel_background_locati
 import '../../features/gps_tracking/data/repositories/gps_tracking_sync_repository_impl.dart';
 import '../../features/gps_tracking/domain/background_location_service.dart';
 import '../../features/gps_tracking/domain/connectivity_service.dart';
+import '../../features/gps_tracking/domain/gps_capture_sync_bridge.dart';
+import '../../features/gps_tracking/domain/gps_requirement_gate.dart';
 import '../../features/gps_tracking/domain/gps_tracking_manager.dart';
 import '../../features/gps_tracking/domain/gps_tracking_sync_service.dart';
 import '../../features/gps_tracking/domain/repositories/gps_tracking_sync_repository.dart';
@@ -527,6 +529,13 @@ void registerGpsTrackingDependencies() {
     dispose: (manager) => manager.dispose(),
   );
 
+  // One centralized GPS requirement state for the whole authenticated app.
+  // Enforced app-wide by `GpsGateGuard`, never per screen.
+  services.registerLazySingleton<GpsRequirementGate>(
+    () => GpsRequirementGate(services<GpsTrackingManager>()),
+    dispose: (gate) => gate.dispose(),
+  );
+
   // Server-sync graph. Separate from the tracking engine so an API failure can
   // never stop capture; nothing runs until a trigger calls the service.
   services.registerLazySingleton<GpsTrackingApiService>(
@@ -550,6 +559,16 @@ void registerGpsTrackingDependencies() {
       session: services<SessionManager>(),
     ),
     dispose: (service) => service.dispose(),
+  );
+
+  // Native "point captured" → immediate sync trigger. Best-effort and
+  // independent: capture/persistence never wait on this path.
+  services.registerLazySingleton<GpsCaptureSyncBridge>(
+    () => GpsCaptureSyncBridge(
+      services<BackgroundLocationService>(),
+      services<GpsTrackingSyncService>(),
+    ),
+    dispose: (bridge) => bridge.dispose(),
   );
   services.registerFactory<GpsTrackingCubit>(
     () => GpsTrackingCubit(

@@ -80,6 +80,10 @@ class MethodChannelBackgroundLocationService
   }
 
   @override
+  Future<void> openLocationSettings() =>
+      _invokeVoid(GpsTrackingChannels.openLocationSettings);
+
+  @override
   Stream<GpsTrackingEvent> get events =>
       _events ??= _eventChannel
           .receiveBroadcastStream()

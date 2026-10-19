@@ -361,4 +361,154 @@ void main() {
       expect(await service.pendingCount(), 2);
     });
   });
+
+  group('GpsTrackingSyncService near-real-time triggers', () {
+    test('a new point triggers an immediate sync attempt', () async {
+      final store = _FakeStore([_record('A')]);
+      final repository = _FakeRepository();
+      final service = GpsTrackingSyncService(
+        store: store,
+        repository: repository,
+        connectivity: _FakeConnectivity(),
+        session: await _signedInSession(),
+      );
+
+      // Simulates the native `locationCaptured` bridge forwarding a point.
+      service.requestSync();
+      await service.syncPending();
+
+      expect(repository.calls, 1);
+      expect(store.records, isEmpty);
+    });
+
+    test('a backlog plus a new point drains in one pass', () async {
+      final store = _FakeStore([_record('A'), _record('B')]);
+      final repository = _FakeRepository();
+      final service = GpsTrackingSyncService(
+        store: store,
+        repository: repository,
+        connectivity: _FakeConnectivity(),
+        session: await _signedInSession(),
+      );
+
+      store.append(_record('C'));
+      service.requestSync();
+      await service.syncPending();
+
+      expect(repository.uploads.single.map((r) => r.localId), [
+        'A',
+        'B',
+        'C',
+      ]);
+      expect(store.records, isEmpty);
+    });
+
+    test('points captured during a sync go out on the next pass', () async {
+      final store = _FakeStore([_record('A'), _record('B'), _record('C')]);
+      final repository = _FakeRepository();
+      late final GpsTrackingSyncService service;
+      repository.onUpload = (call) {
+        if (call == 1) {
+          store.append(_record('D'));
+          store.append(_record('E'));
+          // The native capture path re-triggers sync for the new point.
+          service.requestSync();
+        }
+      };
+      service = GpsTrackingSyncService(
+        store: store,
+        repository: repository,
+        connectivity: _FakeConnectivity(),
+        session: await _signedInSession(),
+      );
+
+      await service.syncPending();
+
+      expect(repository.calls, 2);
+      expect(repository.uploads[0].map((r) => r.localId), ['A', 'B', 'C']);
+      expect(repository.uploads[1].map((r) => r.localId), ['D', 'E']);
+      expect(store.records, isEmpty);
+    });
+
+    test('a failure then a later point sends the older record too', () async {
+      final store = _FakeStore([_record('A')]);
+      final repository = _FakeRepository()..failCalls.add(1);
+      final service = GpsTrackingSyncService(
+        store: store,
+        repository: repository,
+        connectivity: _FakeConnectivity(),
+        session: await _signedInSession(),
+      );
+
+      await service.syncPending();
+      expect(store.records.map((r) => r.localId), ['A']);
+
+      store.append(_record('B'));
+      service.requestSync();
+      await service.syncPending();
+
+      expect(repository.uploads.last.map((r) => r.localId), ['A', 'B']);
+      expect(store.records, isEmpty);
+    });
+
+    test('a failed run schedules a backoff retry, not a tight loop', () async {
+      final store = _FakeStore([_record('A')]);
+      final repository = _FakeRepository()..failCalls.add(1);
+      final service = GpsTrackingSyncService(
+        store: store,
+        repository: repository,
+        connectivity: _FakeConnectivity(),
+        session: await _signedInSession(),
+        sweepInterval: const Duration(hours: 1),
+        retryDelays: const [Duration(milliseconds: 40)],
+      );
+      addTearDown(service.stopAutoSync);
+
+      service.startAutoSync();
+      await pumpEventQueue();
+      expect(repository.calls, 1);
+      expect(store.records, hasLength(1));
+
+      // No immediate retry.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(repository.calls, 1);
+
+      // The scheduled retry fires and succeeds.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(repository.calls, 2);
+      expect(store.records, isEmpty);
+    });
+
+    test('a successful run resets the backoff', () async {
+      final store = _FakeStore([_record('A')]);
+      final repository = _FakeRepository()..failCalls.addAll([1, 2]);
+      final service = GpsTrackingSyncService(
+        store: store,
+        repository: repository,
+        connectivity: _FakeConnectivity(),
+        session: await _signedInSession(),
+        sweepInterval: const Duration(hours: 1),
+        retryDelays: const [
+          Duration(milliseconds: 20),
+          Duration(milliseconds: 1000),
+        ],
+      );
+      addTearDown(service.stopAutoSync);
+
+      service.startAutoSync();
+      // call1 fails (20ms) → call2 fails (1000ms) → call3 succeeds and resets.
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      expect(repository.calls, 3);
+      expect(store.records, isEmpty);
+
+      // A later failure must restart from the *first* delay (20ms), proving the
+      // backoff was reset rather than capped.
+      store.append(_record('B'));
+      repository.failCalls.add(4);
+      service.requestSync();
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(repository.calls, 5);
+      expect(store.records, isEmpty);
+    });
+  });
 }

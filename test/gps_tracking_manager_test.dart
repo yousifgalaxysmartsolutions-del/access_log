@@ -53,6 +53,13 @@ class _FakeService implements BackgroundLocationService {
     return requestResult;
   }
 
+  int openSettingsCalls = 0;
+
+  @override
+  Future<void> openLocationSettings() async {
+    openSettingsCalls++;
+  }
+
   @override
   Stream<GpsTrackingEvent> get events => _events.stream;
 

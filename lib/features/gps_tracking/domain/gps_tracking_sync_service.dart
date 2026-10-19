@@ -35,12 +35,13 @@ enum GpsSyncStatus {
 /// sync. It is deliberately independent of:
 ///
 /// * the native tracking engine - a sync failure never stops capture;
-/// * the UI - sync runs from lifecycle/auth triggers, never from a screen.
+/// * the UI - sync runs from lifecycle/auth/point triggers, never from a screen.
 ///
 /// Invariants enforced here:
 /// * records are only removed after CAP confirms success for that exact batch;
 /// * only one sync runs at a time ([syncPending] coalesces callers);
-/// * no API call is made without internet and an authenticated session.
+/// * no API call is made without internet and an authenticated session;
+/// * retries are controlled by a capped backoff, never an immediate tight loop.
 class GpsTrackingSyncService {
   GpsTrackingSyncService({
     required GpsPendingStore store,
@@ -49,24 +50,37 @@ class GpsTrackingSyncService {
     required SessionManager session,
     this.batchSize = defaultBatchSize,
     this.sweepInterval = defaultSweepInterval,
+    List<Duration>? retryDelays,
   }) : _store = store,
        _repository = repository,
        _connectivity = connectivity,
-       _session = session;
+       _session = session,
+       _retryDelays = retryDelays ?? defaultRetryDelays;
 
   /// Maximum records per `GpsTracking` request. The only place batch sizing is
   /// decided.
   static const int defaultBatchSize = 200;
 
-  /// Conservative sweep used to notice "internet restored" or "a new point was
-  /// captured" without a platform connectivity stream and without an aggressive
-  /// retry loop.
+  /// Conservative sweep used as a safety net for events that were missed while
+  /// Flutter was suspended. It is no longer the primary mechanism: a new point
+  /// triggers an immediate attempt and failures schedule a backoff retry.
   static const Duration defaultSweepInterval = Duration(minutes: 5);
+
+  /// Controlled retry backoff. Failures (and "no internet") retry after the
+  /// next delay, capped at the last value; a successful run resets the sequence.
+  /// Kept here so the retry strategy lives in exactly one place.
+  static const List<Duration> defaultRetryDelays = [
+    Duration(seconds: 5),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+    Duration(seconds: 60),
+  ];
 
   final GpsPendingStore _store;
   final GpsTrackingSyncRepository _repository;
   final ConnectivityService _connectivity;
   final SessionManager _session;
+  final List<Duration> _retryDelays;
 
   /// Isolated, configurable batch size.
   final int batchSize;
@@ -90,6 +104,13 @@ class GpsTrackingSyncService {
   Future<void>? _running;
   bool _pending = false;
   Timer? _sweep;
+
+  /// Retry backoff state. Only armed while [startAutoSync] is active so a
+  /// directly-awaited [syncPending] (tests, one-off calls) never leaves timers
+  /// behind.
+  Timer? _retry;
+  int _retryAttempt = 0;
+  bool _autoSyncActive = false;
 
   /// Points still waiting to be uploaded.
   Future<int> pendingCount() => _store.count();
@@ -118,24 +139,34 @@ class GpsTrackingSyncService {
     _running = null;
   }
 
-  /// Fire-and-forget entry point for lifecycle triggers.
+  /// Fire-and-forget entry point for every trigger:
   ///
-  /// Sync failures are already handled inside [syncPending]; this only exists so
-  /// callers do not have to await the result.
+  /// * a new point was persisted locally (native `locationCaptured` event);
+  /// * internet restored / app resumed / session authenticated;
+  /// * the backoff retry timer fired;
+  /// * the user asked to sync now.
+  ///
+  /// A fresh trigger supersedes a scheduled retry. Failures are already handled
+  /// inside [syncPending]; this only exists so callers do not have to await.
   void requestSync() {
+    _cancelRetry();
     unawaited(syncPending().catchError((Object _) {}));
   }
 
   Future<void> _run() async {
+    _cancelRetry();
     try {
       // 1. Authentication gate: never send when signed out, and keep the data.
+      //    The auth trigger will pick this up when a session becomes available.
       if (!_session.isAuthenticated) {
         _emit(GpsSyncStatus.unauthenticated);
         return;
       }
-      // 2. Connectivity gate: never call the API while offline.
+      // 2. Connectivity gate: never call the API while offline. A capped retry
+      //    notices "internet restored" without an aggressive loop.
       if (!await _connectivity.hasInternet()) {
         _emit(GpsSyncStatus.offline);
+        _scheduleRetry();
         return;
       }
 
@@ -144,8 +175,9 @@ class GpsTrackingSyncService {
 
       // 3. Snapshot the backlog once, then send it in batches. Points captured
       //    while this run is in flight are deliberately *not* part of it; they
-      //    stay in the store and are picked up by the next trigger. This is what
-      //    guarantees a mid-sync capture can never be deleted or lost.
+      //    stay in the store and are picked up by the next trigger (the native
+      //    `locationCaptured` event fires for them). This is what guarantees a
+      //    mid-sync capture can never be deleted or lost.
       final pending = await _store.readAll();
       var index = 0;
       while (index < pending.length) {
@@ -161,9 +193,10 @@ class GpsTrackingSyncService {
 
         switch (result) {
           case FailureResult():
-            // Keep every record; the next trigger retries.
+            // Keep every record; a backoff retry (or the next point) retries.
             _lastUploaded = uploaded;
             _emit(GpsSyncStatus.failed);
+            _scheduleRetry();
             return;
           case Success():
             // Delete only the points from this accepted batch. Points captured
@@ -176,12 +209,16 @@ class GpsTrackingSyncService {
         }
       }
 
+      // A completed run (even "nothing to do") proves the path is healthy, so
+      // the next failure starts the backoff from the beginning again.
+      _resetRetry();
       _lastUploaded = uploaded;
       _emit(uploaded > 0 ? GpsSyncStatus.synced : GpsSyncStatus.idle);
     } on Object {
-      // Storage or unexpected errors: keep everything and report failure.
+      // Storage or unexpected errors: keep everything and retry with backoff.
       _lastUploaded = 0;
       _emit(GpsSyncStatus.failed);
+      _scheduleRetry();
     }
   }
 
@@ -211,14 +248,43 @@ class GpsTrackingSyncService {
   /// Safe to call once at app start. The sweep only syncs when there are
   /// authenticated pending records and internet is available.
   void startAutoSync() {
+    _autoSyncActive = true;
     _sweep ??= Timer.periodic(sweepInterval, (_) => requestSync());
     requestSync();
   }
 
-  /// Stops the sweep (does not stop tracking and deletes nothing).
+  /// Stops the sweep and the backoff retry (does not stop tracking and deletes
+  /// nothing).
   void stopAutoSync() {
+    _autoSyncActive = false;
     _sweep?.cancel();
     _sweep = null;
+    _cancelRetry();
+  }
+
+  /// Arms the next backoff retry. No-op unless auto-sync is running, so
+  /// one-off [syncPending] calls never leave timers behind.
+  void _scheduleRetry() {
+    if (!_autoSyncActive || _retryDelays.isEmpty) return;
+    final index = _retryAttempt < _retryDelays.length
+        ? _retryAttempt
+        : _retryDelays.length - 1;
+    _retryAttempt++;
+    _retry?.cancel();
+    _retry = Timer(_retryDelays[index], () {
+      _retry = null;
+      requestSync();
+    });
+  }
+
+  void _cancelRetry() {
+    _retry?.cancel();
+    _retry = null;
+  }
+
+  void _resetRetry() {
+    _cancelRetry();
+    _retryAttempt = 0;
   }
 
   void _emit(GpsSyncStatus value) {

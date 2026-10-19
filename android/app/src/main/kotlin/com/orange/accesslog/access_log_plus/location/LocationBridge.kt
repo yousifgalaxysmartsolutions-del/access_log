@@ -2,10 +2,14 @@ package com.orange.accesslog.access_log_plus.location
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.BinaryMessenger
@@ -29,6 +33,26 @@ class LocationBridge(
     private val eventChannel = EventChannel(messenger, GpsTrackingConstants.EVENT_CHANNEL)
     private var pendingPermission: MethodChannel.Result? = null
 
+    /**
+     * Event-driven Location Services monitor. The OS broadcasts when the user
+     * toggles GPS; we re-evaluate and push the change to Flutter instead of
+     * polling from Dart.
+     */
+    private val servicesReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != LocationManager.PROVIDERS_CHANGED_ACTION) return
+            val status = permissionStatus()
+            if (status == GpsTrackingConstants.PERMISSION_SERVICE_DISABLED) {
+                GpsEventBus.emit(GpsTrackingConstants.EVENT_SERVICES_DISABLED)
+            } else {
+                GpsEventBus.emit(
+                    GpsTrackingConstants.EVENT_PERMISSION_CHANGED,
+                    permission = status,
+                )
+            }
+        }
+    }
+
     init {
         methodChannel.setMethodCallHandler { call, result -> handle(call, result) }
         eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
@@ -40,6 +64,7 @@ class LocationBridge(
                 GpsEventBus.attach(null)
             }
         })
+        registerServicesMonitor()
     }
 
     fun detach() {
@@ -47,6 +72,7 @@ class LocationBridge(
         eventChannel.setStreamHandler(null)
         GpsEventBus.attach(null)
         pendingPermission = null
+        unregisterServicesMonitor()
     }
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -67,7 +93,48 @@ class LocationBridge(
             GpsTrackingConstants.GET_PERMISSION_STATUS ->
                 result.success(permissionStatus())
             GpsTrackingConstants.REQUEST_PERMISSIONS -> requestPermissions(result)
+            GpsTrackingConstants.OPEN_LOCATION_SETTINGS -> {
+                openLocationSettings()
+                result.success(null)
+            }
             else -> result.notImplemented()
+        }
+    }
+
+    private fun openLocationSettings() {
+        try {
+            activity.startActivity(
+                Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+        } catch (_: Exception) {
+            // No settings activity available; the gate keeps offering the action.
+        }
+    }
+
+    private fun registerServicesMonitor() {
+        val filter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                activity.registerReceiver(
+                    servicesReceiver,
+                    filter,
+                    Context.RECEIVER_NOT_EXPORTED,
+                )
+            } else {
+                activity.registerReceiver(servicesReceiver, filter)
+            }
+        } catch (_: Exception) {
+            // Monitoring is best-effort; the permission query still reports it.
+        }
+    }
+
+    private fun unregisterServicesMonitor() {
+        try {
+            activity.unregisterReceiver(servicesReceiver)
+        } catch (_: Exception) {
+            // Never registered.
         }
     }
 

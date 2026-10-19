@@ -61,6 +61,13 @@ class GpsTrackingManager {
   bool get configurationWantsTracking =>
       _configurationCache?.continuousGpsTracking ?? false;
 
+  /// Whether a system configuration has been loaded at least once.
+  ///
+  /// Distinguishes "we know tracking is off" from "we do not know yet", which
+  /// the requirement gate needs to avoid treating an unknown config as
+  /// "disabled".
+  bool get hasConfiguration => _configurationCache != null;
+
   /// Loads the system configuration and reconciles native tracking with it.
   ///
   /// * `continuousGpsTracking == true` and permission available → start/keep.
@@ -91,22 +98,39 @@ class GpsTrackingManager {
           allowOfflineGpsCollection: data.allowOfflineGpsCollection,
         );
         _configurationCache = configuration;
-        await _service.applyConfiguration(configuration);
-        if (!configuration.continuousGpsTracking) {
-          await _stopInternal();
-          return;
-        }
-        final permission = await _service.getPermissionStatus();
-        if (permission == LocationPermissionStatus.serviceDisabled) {
-          _emit(GpsTrackingStatus.error);
-          return;
-        }
-        if (!permission.grantsBackgroundTracking) {
-          _emit(GpsTrackingStatus.awaitingPermission);
-          return;
-        }
-        await _startInternal();
+        await _applyPolicy(configuration);
     }
+  }
+
+  /// Re-applies the last known configuration without re-fetching it.
+  ///
+  /// Used for native state-change reconciles (a permission was granted, location
+  /// services were turned back on, the tracker stopped unexpectedly). The
+  /// configuration API is only hit at sensible lifecycle points, never on every
+  /// native event.
+  Future<void> ensureTracking() async {
+    _listen();
+    final configuration = _configurationCache;
+    if (configuration == null) return;
+    await _applyPolicy(configuration);
+  }
+
+  Future<void> _applyPolicy(GpsTrackingConfiguration configuration) async {
+    await _service.applyConfiguration(configuration);
+    if (!configuration.continuousGpsTracking) {
+      await _stopInternal();
+      return;
+    }
+    final permission = await _service.getPermissionStatus();
+    if (permission == LocationPermissionStatus.serviceDisabled) {
+      _emit(GpsTrackingStatus.error);
+      return;
+    }
+    if (!permission.grantsBackgroundTracking) {
+      _emit(GpsTrackingStatus.awaitingPermission);
+      return;
+    }
+    await _startInternal();
   }
 
   /// User-initiated enable: requests permissions, then reconciles.
@@ -141,6 +165,9 @@ class GpsTrackingManager {
       _service.getPermissionStatus();
 
   Future<bool> isNativeTracking() => _service.isTracking();
+
+  /// Opens the OS location settings so the user can turn Location Services on.
+  Future<void> openLocationSettings() => _service.openLocationSettings();
 
   Future<bool> _startInternal() async {
     if (await _service.isTracking()) {
@@ -184,15 +211,21 @@ class GpsTrackingManager {
             if (permission == null) return;
             _emitPermission(permission);
             // The OS may grant background access after the initial request
-            // (e.g. the iOS "Always" upgrade). Start as soon as it is available
-            // and configuration wants tracking, without another user action.
+            // (e.g. the iOS "Always" upgrade) or location services may come
+            // back on. Start as soon as it is available and configuration wants
+            // tracking, without another user action and without re-fetching the
+            // configuration.
             if (permission.grantsBackgroundTracking &&
                 configurationWantsTracking) {
-              unawaited(reconcile());
+              unawaited(ensureTracking());
             }
           case GpsTrackingEventType.locationServicesDisabled:
           case GpsTrackingEventType.trackingError:
             _emit(GpsTrackingStatus.error);
+          case GpsTrackingEventType.locationCaptured:
+            // Persistence notification only; sync is triggered elsewhere so the
+            // tracking engine stays independent of the upload path.
+            break;
           case GpsTrackingEventType.unknown:
             break;
         }

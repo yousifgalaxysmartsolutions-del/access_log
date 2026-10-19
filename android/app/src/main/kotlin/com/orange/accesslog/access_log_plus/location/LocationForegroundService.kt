@@ -127,7 +127,14 @@ class LocationForegroundService : Service(), LocationListener {
         if (isDuplicate(location)) return
         if (!GpsPointValidator.isUsable(location)) return
         lastAccepted = location
-        writes.execute { store.appendLocation(applicationContext, location) }
+        writes.execute {
+            // Publish the point only after it is durably persisted. The event is
+            // best-effort: a missing Flutter listener changes nothing, capture
+            // never waits on the upload path.
+            if (store.appendLocation(applicationContext, location)) {
+                GpsEventBus.emit(GpsTrackingConstants.EVENT_LOCATION_CAPTURED)
+            }
+        }
     }
 
     private fun isDuplicate(location: Location): Boolean {

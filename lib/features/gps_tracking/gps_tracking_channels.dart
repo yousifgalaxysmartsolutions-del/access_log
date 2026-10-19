@@ -22,6 +22,7 @@ abstract final class GpsTrackingChannels {
   static const applyConfiguration = 'applyConfiguration';
   static const getPermissionStatus = 'getPermissionStatus';
   static const requestPermissions = 'requestPermissions';
+  static const openLocationSettings = 'openLocationSettings';
 
   // `applyConfiguration` argument keys.
   static const argContinuousGpsTracking = 'continuousGpsTracking';

@@ -18,6 +18,7 @@ enum GpsTrackingConstants {
   static let applyConfiguration = "applyConfiguration"
   static let getPermissionStatus = "getPermissionStatus"
   static let requestPermissions = "requestPermissions"
+  static let openLocationSettings = "openLocationSettings"
 
   static let argContinuous = "continuousGpsTracking"
   static let argIntervalMinutes = "periodicGpsCaptureIntervalMinutes"
@@ -32,6 +33,7 @@ enum GpsTrackingConstants {
   static let eventTrackingStopped = "trackingStopped"
   static let eventPermissionChanged = "permissionChanged"
   static let eventServicesDisabled = "locationServicesDisabled"
+  static let eventLocationCaptured = "locationCaptured"
   static let eventError = "trackingError"
 
   static let permissionNotDetermined = "notDetermined"
@@ -393,6 +395,9 @@ final class BackgroundLocationManager: NSObject, CLLocationManagerDelegate {
     }
     lastPersisted = location.timestamp
     store.append(GpsRecord.make(location: location, isOffline: !isOnline))
+    // Best-effort: notify Flutter that a point was persisted so it can attempt
+    // an immediate upload. Capture never waits on this signal.
+    GpsEventBus.emit(GpsTrackingConstants.eventLocationCaptured)
   }
 
   func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -431,6 +436,23 @@ final class LocationBridge: NSObject, FlutterStreamHandler {
     )
     events.setStreamHandler(self)
     eventChannel = events
+
+    // Location Services can be toggled in Settings while the app is backgrounded.
+    // Re-evaluate on foreground so the gate can pick up the change without
+    // polling from Dart.
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(applicationDidBecomeActive),
+      name: UIApplication.didBecomeActiveNotification,
+      object: nil
+    )
+  }
+
+  @objc private func applicationDidBecomeActive() {
+    GpsEventBus.emit(
+      GpsTrackingConstants.eventPermissionChanged,
+      permission: BackgroundLocationManager.shared.currentStatusWire()
+    )
   }
 
   private func handle(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
@@ -453,9 +475,19 @@ final class LocationBridge: NSObject, FlutterStreamHandler {
       BackgroundLocationManager.shared.requestPermissions { status in
         result(status)
       }
+    case GpsTrackingConstants.openLocationSettings:
+      openLocationSettings()
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func openLocationSettings() {
+    guard let url = URL(string: UIApplication.openSettingsURLString),
+      UIApplication.shared.canOpenURL(url)
+    else { return }
+    UIApplication.shared.open(url)
   }
 
   func onListen(

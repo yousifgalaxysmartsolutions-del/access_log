@@ -52,6 +52,11 @@ enum GpsTrackingEventType {
   trackingStopped,
   permissionChanged,
   locationServicesDisabled,
+
+  /// A point was accepted and persisted locally. Emitted best-effort, after the
+  /// write, so a missing listener never affects capture. Used to trigger an
+  /// immediate sync attempt.
+  locationCaptured,
   trackingError,
   unknown;
 
@@ -61,6 +66,7 @@ enum GpsTrackingEventType {
         'trackingStopped' => trackingStopped,
         'permissionChanged' => permissionChanged,
         'locationServicesDisabled' => locationServicesDisabled,
+        'locationCaptured' => locationCaptured,
         'trackingError' => trackingError,
         _ => unknown,
       };
@@ -138,6 +144,10 @@ abstract interface class BackgroundLocationService {
 
   /// Triggers the platform permission flow and resolves with the new state.
   Future<LocationPermissionStatus> requestPermissions();
+
+  /// Opens the OS location-settings screen so the user can enable Location
+  /// Services. Best-effort: unsupported platforms may no-op.
+  Future<void> openLocationSettings();
 
   /// Native status events. Never required for capture to work.
   Stream<GpsTrackingEvent> get events;
