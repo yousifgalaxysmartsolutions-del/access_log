@@ -10,7 +10,8 @@ configuration, plus upload of the locally stored points to
 SystemGpsConfiguration (GetSystemConfiguration)
         ↓
 GpsRequirementGate            (domain/gps_requirement_gate.dart)
-        ↓                         → GpsGateGuard (presentation/gps_gate_guard.dart)
+        ↓                         → AppRequirementGuard (app_requirements/presentation/app_requirement_guard.dart)
+        ↓                           → GpsBlockingScreen (presentation/gps_blocking_screen.dart)
 GpsTrackingManager            (domain/gps_tracking_manager.dart)
         ↓
 BackgroundLocationService     (domain/background_location_service.dart)
@@ -60,8 +61,10 @@ foreground permission, background permission *and* `isTracking()` — it starts
 the tracker if it is missing, and it is idempotent so no second tracker is ever
 created.
 
-`GpsGateGuard` is mounted once in `MaterialApp.builder`, so no screen owns the
-requirement. Signed-out sessions are never blocked. It only reads the gate state
+`AppRequirementGuard` is mounted once in `MaterialApp.builder`, so no screen owns
+the requirement; it shows `GpsBlockingScreen` (GPS first, then the periodic
+photo gate). Signed-out sessions are never blocked. The screen only reads the
+gate state
 and forwards one intent (`Allow Location` / `Allow Background Location` / `Enable
 Location` → OS settings / `Try Again`); the gate is a plain DI singleton, not a
 Bloc.

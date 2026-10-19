@@ -133,10 +133,31 @@ void repositoryTests() {
         'NewStatusId': 99,
         'lat': '',
         'long': '',
-        'photo': '',
+        'Photo': '',
+        'PhotoBytes': null,
         'NoOfMinute': 0,
         'Answers': [],
       });
+      // Assert the actual CreateRequest envelope, including byte-signature
+      // detection when picker metadata incorrectly describes PNG as JPEG.
+      final photoBytes = Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10]);
+      final withPhoto = await repository.create(
+        RequestExecutionContext(
+          incidentId: 17,
+          requestTypeId: 2,
+          newStatusId: 99,
+          photo: CapFormEvidence(
+            name: 'camera.jpg',
+            mimeType: 'image/jpeg',
+            bytes: photoBytes,
+          ),
+        ),
+      );
+      expect(withPhoto, isA<Success<void>>());
+      final photoPayload = (adapter.calls.last.data as Map)['data'] as Map;
+      expect(photoPayload['Photo'], 'png');
+      expect(photoPayload['PhotoBytes'], photoBytes.toList());
+      expect(photoPayload.containsKey('photo'), false);
       adapter.code = 0;
       expect(
         await repository.create(
@@ -555,7 +576,9 @@ void main() {
       final json = requests.calls.last.toJson();
       expect(json['lat'], '27.2112');
       expect(json['long'], '43.3565');
-      expect(json['photo'], base64Encode([1, 2, 3]));
+      expect(json['Photo'], 'jpg');
+      expect(json['PhotoBytes'], [1, 2, 3]);
+      expect(json.containsKey('photo'), false);
       expect(json['Remark'], 'field note');
       expect(json['QuestionFormId'], 1085);
       expect(json['NoOfMinute'], 7);

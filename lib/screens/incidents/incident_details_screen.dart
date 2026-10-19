@@ -4,6 +4,7 @@ import '../../features/incidents/presentation/incident_action_configuration_scre
 import '../../features/incidents/presentation/bloc/incident_action_configuration_cubit.dart';
 import '../../features/incidents/presentation/incident_action_flow_factory.dart';
 import '../../core/di/injection.dart';
+import '../../core/context/active_incident_context.dart';
 import '../../core/session/session_manager.dart';
 import '../../features/incidents/domain/actions/incident_available_action.dart';
 import '../../features/incidents/domain/actions/incident_action_resolver_service.dart';
@@ -60,6 +61,12 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
   @override
   void initState() {
     super.initState();
+    // Publish which incident this screen puts the user inside. Context only —
+    // the periodic-photo requirement and its blocking gate stay app-level and
+    // read `uploadIncidentId`; nothing here owns requirement behavior.
+    if (services.isRegistered<ActiveIncidentContext>()) {
+      services<ActiveIncidentContext>().enter(widget.incident.incidentId);
+    }
     detailsBloc = IncidentDetailsBlocScope.resolve();
     tabController = TabController(length: 3, vsync: this)
       ..addListener(_onTabChanged);
@@ -71,6 +78,12 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
 
   @override
   void dispose() {
+    // Leaving the incident context. Only the matching entry is removed, so an
+    // older screen disposing can never clear a newer one, and popping every
+    // incident screen always returns uploads to IncidentId = 0.
+    if (services.isRegistered<ActiveIncidentContext>()) {
+      services<ActiveIncidentContext>().leave(widget.incident.incidentId);
+    }
     tabController.removeListener(_onTabChanged);
     tabController.dispose();
     detailsBloc.close();

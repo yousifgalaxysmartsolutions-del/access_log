@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'core/context/active_incident_context.dart';
 import 'core/di/injection.dart';
 import 'core/network/cap/cap_locale_holder.dart';
 import 'core/session/session_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/routes/app_routes.dart';
 import 'core/theme/app_theme.dart';
+import 'features/app_requirements/presentation/app_requirement_guard.dart';
 import 'features/gps_tracking/domain/gps_requirement_gate.dart';
 import 'features/gps_tracking/domain/gps_tracking_manager.dart';
 import 'features/gps_tracking/domain/gps_tracking_sync_service.dart';
-import 'features/gps_tracking/presentation/gps_gate_guard.dart';
+import 'features/periodic_photo/domain/periodic_photo_gate.dart';
 
 class AccessLogApp extends StatefulWidget {
   const AccessLogApp({super.key});
@@ -41,10 +43,16 @@ class AccessLogAppState extends State<AccessLogApp>
           if (services.isRegistered<GpsTrackingManager>()) {
             unawaited(services<GpsTrackingManager>().stopTracking());
           }
+          // Leaving an incident context must not survive sign-out: a stale
+          // IncidentId can never leak into a later periodic-photo upload.
+          if (services.isRegistered<ActiveIncidentContext>()) {
+            services<ActiveIncidentContext>().clear();
+          }
         } else {
-          // Session restored/refreshed: the app-level GPS requirement must be
-          // satisfied again. The gate reconciles native tracking internally.
-          _requestGpsRequirementReconcile();
+          // Session restored/refreshed: the app-level requirements (GPS and
+          // periodic photo) must be satisfied again. Both gates reconcile
+          // internally.
+          _requestRequirementReconcile();
           // New authenticated session: attempt to upload anything pending.
           _requestGpsSync();
         }
@@ -55,15 +63,20 @@ class AccessLogAppState extends State<AccessLogApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
-    // App reopened/foregrounded: re-check the GPS requirements (configuration,
-    // permissions, Location Services, tracker) and retry pending uploads.
-    _requestGpsRequirementReconcile();
+    // App reopened/foregrounded: re-check the app-level requirements
+    // (configuration, permissions, tracker, periodic-photo deadline) and retry
+    // pending uploads. An overdue photo shows its ONE blocking gate here —
+    // nothing ever opens the camera automatically.
+    _requestRequirementReconcile();
     _requestGpsSync();
   }
 
-  void _requestGpsRequirementReconcile() {
+  void _requestRequirementReconcile() {
     if (services.isRegistered<GpsRequirementGate>()) {
       unawaited(services<GpsRequirementGate>().reconcile());
+    }
+    if (services.isRegistered<PeriodicPhotoGate>()) {
+      unawaited(services<PeriodicPhotoGate>().reconcile());
     }
   }
 
@@ -115,10 +128,12 @@ class AccessLogAppState extends State<AccessLogApp>
       darkTheme: AppTheme.dark(),
       themeMode: _themeMode,
       onGenerateRoute: AppRoutes.onGenerateRoute,
-      // One centralized GPS requirement gate for the whole app. It is
-      // presentation-only and inert when the tracking graph is not registered.
+      // One centralized requirement guard for the whole app. It decides — GPS
+      // first, then the periodic photo — which single blocking screen (if any)
+      // covers the navigator. Presentation-only and inert when a gate's graph
+      // is not registered.
       builder: (context, child) =>
-          GpsGateGuard(child: child ?? const SizedBox.shrink()),
+          AppRequirementGuard(child: child ?? const SizedBox.shrink()),
     );
   }
 }

@@ -1,4 +1,4 @@
-/// GPS-related system configuration returned by
+/// System configuration returned by
 /// `CAP/CapConfiguration/GetSystemConfiguration`.
 ///
 /// Only the fields the app currently acts on are modelled. Unknown keys are
@@ -10,6 +10,12 @@
 /// * [continuousGpsTracking] defaults to `false`.
 /// * [periodicGpsCaptureIntervalMinutes] defaults to 1 minute only when the
 ///   field is missing or not a usable positive number.
+///
+/// The `photo` block follows the same fail-closed rule:
+/// * [enablePhotoCapture] defaults to `false`.
+/// * [periodicPhotoCaptureIntervalMinutes] stays `null` when missing or not a
+///   usable positive number, so no cadence is ever invented.
+/// * The other `mandatoryPhoto*` flags are intentionally not modelled yet.
 class SystemGpsConfiguration {
   const SystemGpsConfiguration({
     required this.radiusMeters,
@@ -22,6 +28,8 @@ class SystemGpsConfiguration {
     this.captureGpsAtTaskStart = false,
     this.captureGpsAtTaskCompletion = false,
     this.captureGpsDuringRequests = false,
+    this.enablePhotoCapture = false,
+    this.periodicPhotoCaptureIntervalMinutes,
   });
 
   final double radiusMeters;
@@ -55,6 +63,28 @@ class SystemGpsConfiguration {
   final bool captureGpsAtTaskCompletion;
   final bool captureGpsDuringRequests;
 
+  /// `photo.enablePhotoCapture` — master switch for the photo feature.
+  ///
+  /// Defaults to `false` when absent, so an older/partial payload never
+  /// suddenly demands a photo from the user.
+  final bool enablePhotoCapture;
+
+  /// `photo.periodicPhotoCaptureIntervalMinutes`.
+  ///
+  /// Deliberately nullable and *never* defaulted to a hardcoded cadence: when
+  /// the backend omits it (or sends a non-positive value) it stays `null`, and
+  /// no periodic photo requirement is derived from an invented interval.
+  final int? periodicPhotoCaptureIntervalMinutes;
+
+  /// Whether the periodic photo requirement is currently derivable.
+  ///
+  /// Requires both the switch and a usable interval; the other
+  /// `mandatoryPhoto*` flags are intentionally not implemented yet.
+  bool get requiresPeriodicPhoto =>
+      enablePhotoCapture &&
+      periodicPhotoCaptureIntervalMinutes != null &&
+      periodicPhotoCaptureIntervalMinutes! >= 1;
+
   factory SystemGpsConfiguration.fromJson(Map<String, dynamic> json) {
     final gps = Map<String, dynamic>.from(json['gps'] as Map);
     final radius = (gps['gpsRadiusMeters'] as num).toDouble();
@@ -62,6 +92,16 @@ class SystemGpsConfiguration {
       throw const FormatException('Invalid GPS radius');
     }
     final interval = (gps['periodicGpsCaptureIntervalMinutes'] as num?)?.toInt();
+    // The `photo` block is optional: an older payload without it must never
+    // start demanding photos from the user.
+    final photoRaw = json['photo'];
+    final photo = photoRaw is Map
+        ? Map<String, dynamic>.from(photoRaw)
+        : const <String, dynamic>{};
+    final photoIntervalRaw = photo['periodicPhotoCaptureIntervalMinutes'];
+    final photoInterval = photoIntervalRaw is num
+        ? photoIntervalRaw.toInt()
+        : null;
     return SystemGpsConfiguration(
       // TEMPORARY TEST OVERRIDE: 1,000,000 km, expressed in meters.
       // Restore the original line below after testing:
@@ -81,6 +121,9 @@ class SystemGpsConfiguration {
           gps['captureGpsAtTaskCompletion'] as bool? ?? false,
       captureGpsDuringRequests:
           gps['captureGpsDuringRequests'] as bool? ?? false,
+      enablePhotoCapture: photo['enablePhotoCapture'] == true,
+      periodicPhotoCaptureIntervalMinutes:
+          (photoInterval == null || photoInterval < 1) ? null : photoInterval,
     );
   }
 }

@@ -66,14 +66,15 @@ class RequestExecutionContext implements CapPayload {
     this.remark = '',
     this.lat = '',
     this.long = '',
-    this.photo = '',
+    this.photo,
     this.questionFormId,
     this.noOfMinute = 0,
     List<CapFormAnswer> answers = const [],
   }) : answers = List.unmodifiable(answers);
   final int incidentId, requestTypeId, noOfMinute;
   final int? newStatusId, questionFormId;
-  final String remark, lat, long, photo;
+  final String remark, lat, long;
+  final CapFormEvidence? photo;
   final List<CapFormAnswer> answers;
   bool get canSubmit => newStatusId != null && newStatusId! > 0;
   @override
@@ -87,7 +88,8 @@ class RequestExecutionContext implements CapPayload {
       'NewStatusId': newStatusId,
       'lat': lat,
       'long': long,
-      'photo': photo,
+      'Photo': photo?.extension ?? '',
+      'PhotoBytes': photo?.bytes.toList(),
       'NoOfMinute': noOfMinute,
       'Answers': answers.map((a) => a.toJson()).toList(),
     };

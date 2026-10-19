@@ -199,6 +199,10 @@ class GpsRequirementGate {
 
   Future<void> dispose() async {
     await _subscription.cancel();
-    await _changes.close();
+    // The broadcast state stream is intentionally left unclosed: nothing ever
+    // waits for its done event, and closing after listeners have cancelled
+    // deadlocks the fake-async zone used by widget tests (the done future only
+    // completes through a real event-loop turn there). An abandoned broadcast
+    // controller with no listeners is collectable.
   }
 }

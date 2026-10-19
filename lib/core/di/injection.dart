@@ -53,6 +53,7 @@ import '../config/environment.dart';
 import '../network/dio_client.dart';
 import '../network/interceptors/auth_interceptor.dart';
 import '../session/session_manager.dart';
+import '../context/active_incident_context.dart';
 import '../storage/secure_storage_service.dart';
 import '../../features/authentication/data/api/auth_api_service.dart';
 import '../../features/authentication/data/repositories/auth_repository_impl.dart';
@@ -99,6 +100,14 @@ import '../../features/gps_tracking/domain/gps_tracking_manager.dart';
 import '../../features/gps_tracking/domain/gps_tracking_sync_service.dart';
 import '../../features/gps_tracking/domain/repositories/gps_tracking_sync_repository.dart';
 import '../../features/gps_tracking/presentation/gps_tracking_cubit.dart';
+import '../../features/forms/presentation/widgets/cap_form_capture.dart';
+import '../../features/periodic_photo/data/api/periodic_photo_api_service.dart';
+import '../../features/periodic_photo/data/periodic_photo_retain_store.dart';
+import '../../features/periodic_photo/data/periodic_photo_schedule_store.dart';
+import '../../features/periodic_photo/data/repositories/periodic_photo_repository_impl.dart';
+import '../../features/periodic_photo/domain/periodic_photo_coordinator.dart';
+import '../../features/periodic_photo/domain/periodic_photo_gate.dart';
+import '../../features/periodic_photo/domain/repositories/periodic_photo_repository.dart';
 
 final services = GetIt.instance;
 Future<void> configureDependencies({
@@ -122,6 +131,13 @@ Future<void> configureDependencies({
   services.registerSingleton<SessionManager>(
     session,
     dispose: (s) => s.dispose(),
+  );
+  // Centralized "which incident is the user inside" context. The periodic-photo
+  // requirement reads `uploadIncidentId` from it instead of inferring anything
+  // from routes; incident screens only publish enter/leave.
+  services.registerSingleton<ActiveIncidentContext>(
+    ActiveIncidentContext(),
+    dispose: (context) => context.dispose(),
   );
   final dio = DioClient.create(baseUrl: config.apiUrl, logging: config.logging);
   // Separate refresh transport prevents interceptor recursion/deadlock.
@@ -187,6 +203,7 @@ Future<void> configureDependencies({
   registerFormDependencies();
   registerIncidentActionConfigurationDependencies();
   registerGpsTrackingDependencies();
+  registerPeriodicPhotoDependencies();
   final auth = services<AuthRepository>();
   dio.interceptors.add(AuthInterceptor(dio, session, auth.refresh));
   // Finish restoration before runApp chooses its initial authenticated route.
@@ -530,7 +547,7 @@ void registerGpsTrackingDependencies() {
   );
 
   // One centralized GPS requirement state for the whole authenticated app.
-  // Enforced app-wide by `GpsGateGuard`, never per screen.
+  // Enforced app-wide by `AppRequirementGuard`, never per screen.
   services.registerLazySingleton<GpsRequirementGate>(
     () => GpsRequirementGate(services<GpsTrackingManager>()),
     dispose: (gate) => gate.dispose(),
@@ -575,5 +592,55 @@ void registerGpsTrackingDependencies() {
       services<GpsTrackingManager>(),
       sync: services<GpsTrackingSyncService>(),
     ),
+  );
+}
+
+/// Registers the periodic-photo requirement graph.
+///
+/// Everything is lazy: nothing loads configuration, opens storage, starts a
+/// timer or sends a request during setup, so tests that only call
+/// [configureDependencies] stay side-effect free.
+///
+/// The timing policy lives in [PeriodicPhotoCoordinator] (config + persisted
+/// deadline), the requirement lifecycle in [PeriodicPhotoGate]; UI is wired by
+/// `AppRequirementGuard`, never by a screen.
+void registerPeriodicPhotoDependencies() {
+  if (services.isRegistered<PeriodicPhotoGate>()) return;
+  services.registerLazySingleton<PeriodicPhotoScheduleStore>(
+    PeriodicPhotoScheduleStore.new,
+  );
+  services.registerLazySingleton<PeriodicPhotoRetainStore>(
+    PeriodicPhotoRetainStore.new,
+  );
+  services.registerLazySingleton<PeriodicPhotoApiService>(
+    () => PeriodicPhotoApiService(services<Dio>()),
+  );
+  services.registerLazySingleton<PeriodicPhotoRepository>(
+    () => PeriodicPhotoRepositoryImpl(
+      services<PeriodicPhotoApiService>(),
+      services<ApiRequestContextProvider>(),
+    ),
+  );
+  services.registerLazySingleton<PeriodicPhotoCoordinator>(
+    () => PeriodicPhotoCoordinator(
+      configuration: services<SystemGpsConfigurationRepository>(),
+      store: services<PeriodicPhotoScheduleStore>(),
+    ),
+    dispose: (coordinator) => coordinator.dispose(),
+  );
+  // One centralized periodic-photo requirement for the whole authenticated
+  // app. Enforced app-wide by `AppRequirementGuard`, never per screen.
+  services.registerLazySingleton<PeriodicPhotoGate>(
+    () => PeriodicPhotoGate(
+      coordinator: services<PeriodicPhotoCoordinator>(),
+      repository: services<PeriodicPhotoRepository>(),
+      retainStore: services<PeriodicPhotoRetainStore>(),
+      activeIncident: services<ActiveIncidentContext>(),
+      session: services<SessionManager>(),
+      // Camera reuse: the existing foreground, user-initiated capture flow
+      // (image_picker → device camera, 16 MB guard). Never a gallery image.
+      capturePhoto: () => CapNativeFormCapture().capturePhoto(),
+    ),
+    dispose: (gate) => gate.dispose(),
   );
 }

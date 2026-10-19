@@ -223,7 +223,7 @@ class IncidentActionConfigurationCubit extends Cubit<ActionConfigurationState> {
       remark: input.remark,
       lat: input.lat,
       long: input.long,
-      photo: input.photo,
+      photo: state.photo,
       questionFormId: input.questionFormId,
       answers: input.answers,
       noOfMinute: state.noOfMinute ?? 0,

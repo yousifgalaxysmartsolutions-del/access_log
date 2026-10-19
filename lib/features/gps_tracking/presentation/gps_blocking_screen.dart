@@ -1,121 +1,19 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
-import '../../../core/di/injection.dart';
 import '../../../core/localization/app_strings.dart';
-import '../../../core/session/session_manager.dart';
 import '../../../core/theme/app_tokens.dart';
 import '../domain/gps_requirement_gate.dart';
 
-/// Centralized, app-level enforcement of the GPS requirements.
+/// The blocking screen for the GPS requirement.
 ///
-/// Mounted once around the whole `MaterialApp` navigator. For an *authenticated*
-/// session it covers the app with a blocking screen whenever the
-/// [GpsRequirementGate] is not [GpsGateState.allowsUsage]; signed-out sessions
-/// (the login flow) are never blocked.
-///
-/// It is presentation only: it reads the gate state and forwards one user
-/// intent. It never talks to the platform and never owns the requirement logic.
-class GpsGateGuard extends StatefulWidget {
-  const GpsGateGuard({super.key, required this.child});
-
-  /// The app's navigator/routes.
-  final Widget child;
-
-  @override
-  State<GpsGateGuard> createState() => _GpsGateGuardState();
-}
-
-class _GpsGateGuardState extends State<GpsGateGuard> {
-  GpsRequirementGate? _gate;
-  SessionManager? _session;
-  StreamSubscription<GpsGateState>? _gateSubscription;
-  StreamSubscription<SessionStatus>? _sessionSubscription;
-
-  GpsGateState _state = GpsGateState.checking;
-  bool _authenticated = false;
-  bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _gate = services.isRegistered<GpsRequirementGate>()
-        ? services<GpsRequirementGate>()
-        : null;
-    _session = services.isRegistered<SessionManager>()
-        ? services<SessionManager>()
-        : null;
-    _state = _gate?.state ?? GpsGateState.disabledByConfiguration;
-    _authenticated = _session?.isAuthenticated ?? false;
-
-    _gateSubscription = _gate?.changes.listen((value) {
-      if (mounted) setState(() => _state = value);
-    });
-    _sessionSubscription = _session?.changes.listen((status) {
-      final authenticated = status == SessionStatus.authenticated;
-      if (mounted) setState(() => _authenticated = authenticated);
-      // A fresh authenticated session must satisfy the requirements again.
-      if (authenticated) unawaited(_gate?.reconcile());
-    });
-  }
-
-  @override
-  void dispose() {
-    _gateSubscription?.cancel();
-    _sessionSubscription?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _handleAction() async {
-    final gate = _gate;
-    if (gate == null || _busy) return;
-    setState(() => _busy = true);
-    try {
-      switch (_state) {
-        case GpsGateState.permissionRequired:
-        case GpsGateState.backgroundPermissionRequired:
-          await gate.requestPermissions();
-        case GpsGateState.locationServicesDisabled:
-          await gate.openLocationSettings();
-        case GpsGateState.checking:
-        case GpsGateState.startingTracker:
-        case GpsGateState.error:
-          await gate.reconcile();
-        case GpsGateState.ready:
-        case GpsGateState.disabledByConfiguration:
-          break;
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final blocking =
-        _gate != null && _authenticated && !_state.allowsUsage;
-    if (!blocking) return widget.child;
-    // The blocking layer sits on top of the (still mounted) navigator, so the
-    // route stack is preserved and simply covered and non-interactive.
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        widget.child,
-        Positioned.fill(
-          child: _GpsBlockingScreen(
-            state: _state,
-            busy: _busy,
-            onAction: _handleAction,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GpsBlockingScreen extends StatelessWidget {
-  const _GpsBlockingScreen({
+/// Presentation only: it renders [state] and forwards one user intent. It never
+/// talks to the platform and never owns the requirement logic. The decision
+/// *whether* to block — and which requirement wins when both GPS and the
+/// periodic photo are outstanding — belongs to the app-level
+/// `AppRequirementGuard`, so only this single screen is ever mounted.
+class GpsBlockingScreen extends StatelessWidget {
+  const GpsBlockingScreen({
+    super.key,
     required this.state,
     required this.busy,
     required this.onAction,
