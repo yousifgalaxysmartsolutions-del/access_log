@@ -292,7 +292,7 @@ void main() {
         {
           'QuestionId': 1,
           'QuestionTypeId': 4,
-          'TextAnswer': '',
+          'TextAnswer': 'jpg',
           'AnswerBytes': [1],
           'OptionAnswer': 0,
         },

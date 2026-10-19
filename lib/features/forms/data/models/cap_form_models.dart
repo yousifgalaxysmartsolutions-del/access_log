@@ -10,6 +10,75 @@ class CapFormEvidence {
   }) : bytes = Uint8List.fromList(bytes).asUnmodifiableView();
   final String name, mimeType;
   final Uint8List bytes;
+
+  /// Extension without a dot. Inspect encoded content before picker metadata,
+  /// which can be absent or generic on Android and iOS.
+  String get extension {
+    bool startsWith(List<int> header) =>
+        bytes.length >= header.length &&
+        List.generate(
+          header.length,
+          (i) => bytes[i] == header[i],
+        ).every((matches) => matches);
+    if (startsWith([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])) return 'png';
+    if (startsWith([0xff, 0xd8, 0xff])) return 'jpg';
+    if (bytes.length >= 12 &&
+        String.fromCharCodes(bytes.sublist(4, 8)) == 'ftyp') {
+      final brand = String.fromCharCodes(bytes.sublist(8, 12));
+      if (brand == 'qt  ') return 'mov';
+      if (['heic', 'heix', 'hevc', 'hevx'].contains(brand)) return 'heic';
+      if (['mif1', 'msf1'].contains(brand)) return 'heif';
+      if (['avif', 'avis'].contains(brand)) return 'avif';
+      if (['M4A ', 'M4B '].contains(brand)) return 'm4a';
+      if (['isom', 'iso2', 'mp41', 'mp42', 'avc1', 'M4V '].contains(brand)) {
+        return mimeType.startsWith('audio/') ? 'm4a' : 'mp4';
+      }
+    }
+    final suffix = name.split('.').last.toLowerCase();
+    if (name.contains('.') &&
+        const {
+          'png',
+          'jpg',
+          'jpeg',
+          'heic',
+          'heif',
+          'webp',
+          'gif',
+          'avif',
+          'mov',
+          'mp4',
+          'm4v',
+          '3gp',
+          'm4a',
+          'mp3',
+          'aac',
+          'wav',
+          'ogg',
+          'flac',
+        }.contains(suffix)) {
+      return suffix == 'jpeg' ? 'jpg' : suffix;
+    }
+    final type = mimeType.split(';').first.trim().toLowerCase();
+    final fallback = const {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+      'video/quicktime': 'mov',
+      'video/mp4': 'mp4',
+      'video/3gpp': '3gp',
+      'audio/mp4': 'm4a',
+      'audio/x-m4a': 'm4a',
+      'audio/mpeg': 'mp3',
+      'audio/aac': 'aac',
+      'audio/wav': 'wav',
+      'audio/ogg': 'ogg',
+    }[type];
+    if (fallback != null) return fallback;
+    throw const FormatException('Unknown evidence file extension');
+  }
 }
 
 int _id(Object? value) {
@@ -159,7 +228,7 @@ class CapFormAnswer implements CapPayload {
     return {
       'QuestionId': questionId,
       'QuestionTypeId': questionTypeId,
-      'TextAnswer': text,
+      'TextAnswer': evidence?.extension ?? text,
       'AnswerBytes': evidence?.bytes.toList() ?? answerBytes,
       'OptionAnswer': optionId,
     };

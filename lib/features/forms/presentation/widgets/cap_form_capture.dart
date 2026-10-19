@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 import '../../../../core/localization/app_strings.dart';
 import '../../../../widgets/app_button.dart';
 import '../../data/models/cap_form_models.dart';
+import '../../data/services/cap_video_compressor.dart';
 
 /// Foreground, user-initiated capture only. No calls to CAP or background work.
 class CapNativeFormCapture {
@@ -71,13 +72,9 @@ class CapNativeFormCapture {
           maxDuration: const Duration(seconds: 30),
         );
         if (file == null) return null;
-        if (await file.length() > maxEvidenceBytes) {
-          throw const FormatException('Evidence exceeds 16 MB');
-        }
-        evidence = CapFormEvidence(
-          name: file.name,
-          mimeType: file.mimeType ?? 'video/mp4',
-          bytes: await file.readAsBytes(),
+        evidence = await CapVideoCompressor().prepare(
+          File(file.path),
+          maxBytes: maxEvidenceBytes,
         );
       case CapQuestionType.signature:
         evidence = await Navigator.of(context).push<CapFormEvidence>(
@@ -382,7 +379,7 @@ class _AudioScreenState extends State<_AudioScreen>
                         directory ??= await (await getTemporaryDirectory())
                             .createTemp('cap-form-audio-');
                         await recorder.start(
-                          const RecordConfig(),
+                          const RecordConfig(encoder: AudioEncoder.aacLc),
                           path: '${directory!.path}/answer.m4a',
                         );
                         if (!mounted ||

@@ -45,7 +45,7 @@ The embedded form only collects answers; it never submits them separately.
 
 - No form: QuestionFormId is null and Answers is empty.
 - Top-level lat/long are separate strings; GPS form answers remain unchanged.
-- Top-level photo is Base64; AnswerBytes contains raw bytes (JSON integer array).
+- Top-level photo is Base64; AnswerBytes contains raw bytes (JSON integer array); attachment TextAnswer contains the file extension without a dot, resolved from encoded content then filename/MIME metadata.
 - Captured form evidence uses the existing answer serializer.
 - Each selected multi-choice option is a separate answer for the same parent
   QuestionId, with its own OptionAnswer ID.
@@ -57,3 +57,5 @@ fake transports/capture callbacks. Physical camera, microphone, scanner and GPS
 must be acceptance-tested on Android/iOS devices with granted/denied permissions.
 Native plugin changes require a full rebuild, not hot reload. No background
 location, background audio or broad storage permission is requested.
+
+Video answers use native video_compress transcoding with audio retained: 720p for larger sources, highest quality for smaller sources. Only smaller outputs with valid dimensions and matching duration are accepted. Failures retain the original; the 16 MB limit applies after compression. Exported temporary files are removed after reading. Real-device Android/iOS capture and playback validation is still required.

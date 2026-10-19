@@ -49,6 +49,7 @@ dependencies:
   # API for the installed app version. 10.x is required: 8.x/9.x pin an older
   # `win32` that conflicts with flutter_secure_storage.
   package_info_plus: ^10.2.1
+  video_compress: ^3.1.4
   image_picker: ^1.2.3
   crop_your_image: ^2.0.1
   image: ^4.10.1
