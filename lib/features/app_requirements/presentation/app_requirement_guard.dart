@@ -12,7 +12,8 @@ import '../../periodic_photo/presentation/periodic_photo_blocking_screen.dart';
 /// Which requirement currently owns the app's single blocking overlay.
 enum AppRequirement { none, gps, photo }
 
-/// The priority rule: GPS is resolved first, then the periodic photo.
+/// Confirmed GPS issues are resolved first, then the periodic photo.
+/// Routine GPS checks/startup do not require an overlay.
 ///
 /// Extracted as a pure function so "there must never be two competing blocking
 /// screens" is directly testable instead of being an accident of widget code.
@@ -184,9 +185,8 @@ class _AppRequirementGuardState extends State<AppRequirementGuard> {
         state: _photoState,
         busy: _photoBusy,
         error: _photoGate?.lastError,
-        onTakePhoto: () => _runPhotoIntent(
-          () => _photoGate!.captureAndSubmit(),
-        ),
+        onTakePhoto: () =>
+            _runPhotoIntent(() => _photoGate!.captureAndSubmit()),
         onRetry: () => _runPhotoIntent(() => _photoGate!.retryUpload()),
         onRetake: () => _runPhotoIntent(() => _photoGate!.retake()),
       ),
@@ -197,7 +197,10 @@ class _AppRequirementGuardState extends State<AppRequirementGuard> {
     // one layer is ever mounted: requirements never stack.
     return Stack(
       fit: StackFit.expand,
-      children: [widget.child, Positioned.fill(child: screen)],
+      children: [
+        widget.child,
+        Positioned.fill(child: screen),
+      ],
     );
   }
 }

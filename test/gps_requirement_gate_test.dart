@@ -19,6 +19,7 @@ class _FakeService implements BackgroundLocationService {
   int permissionRequests = 0;
   int openSettingsCalls = 0;
   bool tracking = false;
+  bool failPermission = false;
 
   LocationPermissionStatus permission = LocationPermissionStatus.always;
   LocationPermissionStatus requestResult = LocationPermissionStatus.always;
@@ -26,7 +27,9 @@ class _FakeService implements BackgroundLocationService {
   final _events = StreamController<GpsTrackingEvent>.broadcast();
 
   @override
-  Future<void> applyConfiguration(GpsTrackingConfiguration configuration) async {
+  Future<void> applyConfiguration(
+    GpsTrackingConfiguration configuration,
+  ) async {
     applied.add(configuration);
   }
 
@@ -46,7 +49,10 @@ class _FakeService implements BackgroundLocationService {
   Future<bool> isTracking() async => tracking;
 
   @override
-  Future<LocationPermissionStatus> getPermissionStatus() async => permission;
+  Future<LocationPermissionStatus> getPermissionStatus() async {
+    if (failPermission) throw StateError('Location permission check failed');
+    return permission;
+  }
 
   @override
   Future<LocationPermissionStatus> requestPermissions() async {
@@ -79,14 +85,31 @@ class _FakeConfiguration implements SystemGpsConfigurationRepository {
   }
 }
 
-SystemGpsConfiguration _configuration(bool continuous) => SystemGpsConfiguration(
-  radiusMeters: 100,
-  enableGpsValidation: true,
-  continuousGpsTracking: continuous,
-  periodicGpsCaptureIntervalMinutes: 1,
-);
+SystemGpsConfiguration _configuration(bool continuous) =>
+    SystemGpsConfiguration(
+      radiusMeters: 100,
+      enableGpsValidation: true,
+      continuousGpsTracking: continuous,
+      periodicGpsCaptureIntervalMinutes: 1,
+    );
 
 void main() {
+  test(
+    'only confirmed GPS issues block; checking and startup stay non-blocking',
+    () {
+      for (final state in GpsGateState.values) {
+        expect(
+          state.allowsUsage,
+          !{
+            GpsGateState.permissionRequired,
+            GpsGateState.backgroundPermissionRequired,
+            GpsGateState.locationServicesDisabled,
+            GpsGateState.error,
+          }.contains(state),
+        );
+      }
+    },
+  );
   late _FakeService service;
   late _FakeConfiguration configuration;
   late GpsTrackingManager manager;
@@ -176,13 +199,28 @@ void main() {
     expect(gate.state.allowsUsage, isFalse);
   });
 
+  test(
+    'failed native check exits silent checking and reports a blocking error',
+    () async {
+      service.failPermission = true;
+      await gate.reconcile();
+      expect(gate.state, GpsGateState.error);
+      expect(gate.state.allowsUsage, false);
+      service.failPermission = false;
+      await gate.reconcile();
+      expect(gate.state, GpsGateState.ready);
+    },
+  );
+
   test('GPS off while ready → blocking, and back on → ready again', () async {
     await gate.reconcile();
     expect(gate.state, GpsGateState.ready);
 
     service.permission = LocationPermissionStatus.serviceDisabled;
     service.emit(
-      const GpsTrackingEvent(type: GpsTrackingEventType.locationServicesDisabled),
+      const GpsTrackingEvent(
+        type: GpsTrackingEventType.locationServicesDisabled,
+      ),
     );
     await pumpEventQueue();
     expect(gate.state, GpsGateState.locationServicesDisabled);
@@ -203,30 +241,33 @@ void main() {
     expect(service.startCalls, 2);
   });
 
-  test('permission revoked → blocked, restored → ready automatically', () async {
-    await gate.reconcile();
-    expect(gate.state, GpsGateState.ready);
+  test(
+    'permission revoked → blocked, restored → ready automatically',
+    () async {
+      await gate.reconcile();
+      expect(gate.state, GpsGateState.ready);
 
-    service.permission = LocationPermissionStatus.whenInUse;
-    service.emit(
-      const GpsTrackingEvent(
-        type: GpsTrackingEventType.permissionChanged,
-        permission: LocationPermissionStatus.whenInUse,
-      ),
-    );
-    await pumpEventQueue();
-    expect(gate.state, GpsGateState.backgroundPermissionRequired);
+      service.permission = LocationPermissionStatus.whenInUse;
+      service.emit(
+        const GpsTrackingEvent(
+          type: GpsTrackingEventType.permissionChanged,
+          permission: LocationPermissionStatus.whenInUse,
+        ),
+      );
+      await pumpEventQueue();
+      expect(gate.state, GpsGateState.backgroundPermissionRequired);
 
-    service.permission = LocationPermissionStatus.always;
-    service.emit(
-      const GpsTrackingEvent(
-        type: GpsTrackingEventType.permissionChanged,
-        permission: LocationPermissionStatus.always,
-      ),
-    );
-    await pumpEventQueue();
-    expect(gate.state, GpsGateState.ready);
-  });
+      service.permission = LocationPermissionStatus.always;
+      service.emit(
+        const GpsTrackingEvent(
+          type: GpsTrackingEventType.permissionChanged,
+          permission: LocationPermissionStatus.always,
+        ),
+      );
+      await pumpEventQueue();
+      expect(gate.state, GpsGateState.ready);
+    },
+  );
 
   test('tracker stopped unexpectedly → restarted automatically', () async {
     await gate.reconcile();
@@ -262,17 +303,20 @@ void main() {
     expect(gate.state, GpsGateState.ready);
   });
 
-  test('requestPermissions then reconcile clears the permission gate', () async {
-    service.permission = LocationPermissionStatus.notDetermined;
-    service.requestResult = LocationPermissionStatus.always;
-    await gate.reconcile();
-    expect(gate.state, GpsGateState.permissionRequired);
+  test(
+    'requestPermissions then reconcile clears the permission gate',
+    () async {
+      service.permission = LocationPermissionStatus.notDetermined;
+      service.requestResult = LocationPermissionStatus.always;
+      await gate.reconcile();
+      expect(gate.state, GpsGateState.permissionRequired);
 
-    await gate.requestPermissions();
+      await gate.requestPermissions();
 
-    expect(service.permissionRequests, 1);
-    expect(gate.state, GpsGateState.ready);
-  });
+      expect(service.permissionRequests, 1);
+      expect(gate.state, GpsGateState.ready);
+    },
+  );
 
   test('openLocationSettings forwards to the native side', () async {
     await gate.openLocationSettings();

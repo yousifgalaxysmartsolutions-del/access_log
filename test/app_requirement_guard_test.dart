@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:access_log_plus/core/context/active_incident_context.dart';
@@ -32,6 +34,35 @@ class _PhotoRig {
   Future<void> dispose() async {
     await gate.dispose();
     await coordinator.dispose();
+  }
+}
+
+class _ControlledGpsGate implements GpsRequirementGate {
+  @override
+  GpsGateState state = GpsGateState.checking;
+  final _changes = StreamController<GpsGateState>.broadcast();
+  @override
+  Stream<GpsGateState> get changes => _changes.stream;
+  int permissionRequests = 0;
+  void update(GpsGateState value) {
+    state = value;
+    _changes.add(value);
+  }
+
+  @override
+  Future<void> reconcile() async {}
+  @override
+  Future<LocationPermissionStatus> requestPermissions() async {
+    permissionRequests++;
+    update(GpsGateState.ready);
+    return LocationPermissionStatus.always;
+  }
+
+  @override
+  Future<void> openLocationSettings() async {}
+  @override
+  Future<void> dispose() async {
+    unawaited(_changes.close());
   }
 }
 
@@ -166,6 +197,99 @@ void main() {
       return session;
     }
 
+    testWidgets(
+      'GPS checks and startup are silent; only confirmed issues cover the app',
+      (tester) async {
+        final session = authenticatedSession();
+        final gps = _ControlledGpsGate();
+        disposers.add(gps.dispose);
+        var taps = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AppRequirementGuard(
+              session: session,
+              gpsGate: gps,
+              child: TextButton(
+                onPressed: () => taps++,
+                child: const Text('Use app'),
+              ),
+            ),
+          ),
+        );
+        for (final state in [
+          GpsGateState.checking,
+          GpsGateState.startingTracker,
+          GpsGateState.ready,
+          GpsGateState.disabledByConfiguration,
+        ]) {
+          gps.update(state);
+          await tester.pump();
+          expect(find.byType(GpsBlockingScreen), findsNothing);
+          await tester.tap(find.text('Use app'));
+        }
+        expect(taps, 4);
+        for (final state in [
+          GpsGateState.permissionRequired,
+          GpsGateState.backgroundPermissionRequired,
+          GpsGateState.locationServicesDisabled,
+          GpsGateState.error,
+        ]) {
+          gps.update(state);
+          await tester.pump();
+          expect(find.byType(GpsBlockingScreen), findsOneWidget);
+        }
+        gps.update(GpsGateState.ready);
+        await tester.pump();
+        expect(find.byType(GpsBlockingScreen), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    for (final lang in ['en', 'ar']) {
+      testWidgets(
+        'Always permission instructions fit large text in $lang and action uses existing gate',
+        (tester) async {
+          final session = authenticatedSession();
+          final gps = _ControlledGpsGate()
+            ..state = GpsGateState.backgroundPermissionRequired;
+          disposers.add(gps.dispose);
+          tester.view.physicalSize = const Size(320, 700);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          await tester.pumpWidget(
+            MaterialApp(
+              locale: Locale(lang),
+              supportedLocales: const [Locale('en'), Locale('ar')],
+              localizationsDelegates: GlobalMaterialLocalizations.delegates,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(2)),
+                child: child!,
+              ),
+              home: AppRequirementGuard(
+                session: session,
+                gpsGate: gps,
+                child: const Text('Use app'),
+              ),
+            ),
+          );
+          await tester.pump();
+          expect(find.textContaining('Always'), findsWidgets);
+          final button = find.byType(FilledButton);
+          await tester.ensureVisible(button);
+          await tester.pumpAndSettle();
+          await tester.tap(button);
+          await tester.pumpAndSettle();
+          expect(gps.permissionRequests, 1);
+          expect(find.byType(GpsBlockingScreen), findsNothing);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
+
     SessionManager signedOutSession() {
       final session = SessionManager(MemoryTokenStorage());
       disposers.add(session.dispose);
@@ -191,36 +315,39 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('both outstanding → GPS blocks and the photo gate never stacks',
-        (tester) async {
-      final session = authenticatedSession();
-      final gps = await makeGpsGate(blocking: true);
-      final photo = await makePhotoGate(session: session);
-      expect(gps.state, GpsGateState.permissionRequired);
-      expect(photo.gate.state, PeriodicPhotoGateState.due);
+    testWidgets(
+      'both outstanding → GPS blocks and the photo gate never stacks',
+      (tester) async {
+        final session = authenticatedSession();
+        final gps = await makeGpsGate(blocking: true);
+        final photo = await makePhotoGate(session: session);
+        expect(gps.state, GpsGateState.permissionRequired);
+        expect(photo.gate.state, PeriodicPhotoGateState.due);
 
-      await pumpGuard(
-        tester,
-        gpsGate: gps,
-        photoGate: photo.gate,
-        session: session,
-      );
+        await pumpGuard(
+          tester,
+          gpsGate: gps,
+          photoGate: photo.gate,
+          session: session,
+        );
 
-      expect(find.byType(GpsBlockingScreen), findsOneWidget);
-      expect(
-        find.byType(PeriodicPhotoBlockingScreen),
-        findsNothing,
-        reason: 'requirements never stack two competing overlays',
-      );
-      // The navigator stays mounted underneath, only covered.
-      expect(find.text('app-content'), findsOneWidget);
+        expect(find.byType(GpsBlockingScreen), findsOneWidget);
+        expect(
+          find.byType(PeriodicPhotoBlockingScreen),
+          findsNothing,
+          reason: 'requirements never stack two competing overlays',
+        );
+        // The navigator stays mounted underneath, only covered.
+        expect(find.text('app-content'), findsOneWidget);
 
-      await tester.pumpWidget(const SizedBox());
-      await disposeAll();
-    });
+        await tester.pumpWidget(const SizedBox());
+        await disposeAll();
+      },
+    );
 
-    testWidgets('GPS satisfied + photo due → the photo gate blocks',
-        (tester) async {
+    testWidgets('GPS satisfied + photo due → the photo gate blocks', (
+      tester,
+    ) async {
       final session = authenticatedSession();
       final gps = await makeGpsGate(blocking: false);
       final photo = await makePhotoGate(session: session);

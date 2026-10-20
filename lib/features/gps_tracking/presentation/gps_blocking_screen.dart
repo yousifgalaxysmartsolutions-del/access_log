@@ -48,7 +48,8 @@ class GpsBlockingScreen extends StatelessWidget {
                         color: content.color.withValues(alpha: 0.12),
                         shape: BoxShape.circle,
                       ),
-                      child: content.leading ??
+                      child:
+                          content.leading ??
                           Icon(content.icon, size: 46, color: content.color),
                     ),
                     const SizedBox(height: AppSpacing.lg),
@@ -99,84 +100,79 @@ class GpsBlockingScreen extends StatelessWidget {
     );
   }
 
-  _GateContent _content(BuildContext context, GpsGateState state) =>
-      switch (state) {
-        GpsGateState.permissionRequired => _GateContent(
-          icon: Icons.location_on_outlined,
-          color: AppColors.orange,
-          title: context.tr(
-            'Location Permission Required',
-            'صلاحية الموقع مطلوبة',
-          ),
-          body: context.tr(
-            'CAP requires location access for background tracking.',
-            'يتطلب CAP الوصول إلى الموقع للتتبع في الخلفية.',
-          ),
-          action: context.tr('Allow Location', 'السماح بالموقع'),
-        ),
-        GpsGateState.backgroundPermissionRequired => _GateContent(
-          icon: Icons.my_location_rounded,
-          color: AppColors.orange,
-          title: context.tr(
-            'Background Location Required',
-            'الموقع في الخلفية مطلوب',
-          ),
-          body: context.tr(
-            'CAP requires background location access while tracking is enabled.',
-            'يتطلب CAP الوصول إلى الموقع في الخلفية أثناء تشغيل التتبع.',
-          ),
-          action: context.tr(
-            'Allow Background Location',
-            'السماح بالموقع في الخلفية',
-          ),
-        ),
-        GpsGateState.locationServicesDisabled => _GateContent(
-          icon: Icons.gps_off_rounded,
-          color: AppColors.warning,
-          title: context.tr(
-            'Location Services Required',
-            'خدمة الموقع مطلوبة',
-          ),
-          body: context.tr(
-            'Please enable Location Services to continue using CAP.',
-            'يرجى تفعيل خدمة الموقع لمتابعة استخدام CAP.',
-          ),
-          action: context.tr('Enable Location', 'تفعيل الموقع'),
-          actionIcon: Icons.open_in_new_rounded,
-        ),
-        GpsGateState.error => _GateContent(
-          icon: Icons.error_outline_rounded,
-          color: AppColors.error,
-          title: context.tr('Location Unavailable', 'الموقع غير متاح'),
-          body: context.tr(
-            'CAP could not start location tracking. Check permissions and try again.',
-            'تعذّر تشغيل تتبع الموقع. تحقق من الصلاحيات وحاول مجددًا.',
-          ),
-          action: context.tr('Try Again', 'إعادة المحاولة'),
-          actionIcon: Icons.refresh_rounded,
-        ),
-        GpsGateState.checking || GpsGateState.startingTracker => _GateContent(
-          icon: Icons.location_searching_rounded,
-          color: AppColors.info,
-          title: context.tr('Checking Location…', 'جارٍ التحقق من الموقع…'),
-          body: context.tr(
-            'CAP is verifying the device location requirements.',
-            'يتحقق CAP من متطلبات موقع الجهاز.',
-          ),
-          leading: const SizedBox(
-            width: 40,
-            height: 40,
-            child: CircularProgressIndicator(strokeWidth: 3),
-          ),
-        ),
-        GpsGateState.ready || GpsGateState.disabledByConfiguration =>
-          _GateContent(
-            icon: Icons.check_circle_outline_rounded,
-            color: AppColors.success,
-            title: context.tr('Ready', 'جاهز'),
-            body: '',
-          ),
-      };
+  _GateContent _content(
+    BuildContext context,
+    GpsGateState state,
+  ) => switch (state) {
+    GpsGateState.permissionRequired => _GateContent(
+      icon: Icons.location_on_outlined,
+      color: AppColors.orange,
+      title: context.tr('Location Permission Required', 'صلاحية الموقع مطلوبة'),
+      body: context.tr(
+        'Allow location access, then select “Allow all the time” on Android or “Always” on iPhone. “While using the app” is not enough for background tracking. If the option is missing, open your device Settings → Apps → CAP → Permissions → Location.',
+        'اسمح بالوصول إلى الموقع، ثم اختر «السماح طوال الوقت / Allow all the time» على أندرويد أو «دائمًا / Always» على آيفون. خيار «أثناء استخدام التطبيق» لا يكفي للتتبع في الخلفية. إذا لم يظهر الخيار، افتح إعدادات الجهاز ← التطبيقات ← CAP ← الأذونات ← الموقع.',
+      ),
+      action: context.tr('Allow Location', 'السماح بالموقع'),
+    ),
+    GpsGateState.backgroundPermissionRequired => _GateContent(
+      icon: Icons.my_location_rounded,
+      color: AppColors.orange,
+      title: context.tr(
+        'Background Location Required',
+        'الموقع في الخلفية مطلوب',
+      ),
+      body: context.tr(
+        'Location is currently allowed only while using the app. In device Settings → CAP → Location permissions, choose “Allow all the time” (Android) or “Always” (iPhone), then return to CAP. No new login is needed.',
+        'صلاحية الموقع الحالية تسمح به أثناء استخدام التطبيق فقط. من إعدادات الجهاز ← CAP ← أذونات الموقع، اختر «السماح طوال الوقت / Allow all the time» على أندرويد أو «دائمًا / Always» على آيفون، ثم ارجع للتطبيق. لا تحتاج لتسجيل الدخول مجددًا.',
+      ),
+      action: context.tr(
+        'Allow all the time / Always',
+        'السماح بالموقع طوال الوقت',
+      ),
+    ),
+    GpsGateState.locationServicesDisabled => _GateContent(
+      icon: Icons.gps_off_rounded,
+      color: AppColors.warning,
+      title: context.tr('Location Services Required', 'خدمة الموقع مطلوبة'),
+      body: context.tr(
+        'Please enable Location Services to continue using CAP.',
+        'يرجى تفعيل خدمة الموقع لمتابعة استخدام CAP.',
+      ),
+      action: context.tr('Enable Location', 'تفعيل الموقع'),
+      actionIcon: Icons.open_in_new_rounded,
+    ),
+    GpsGateState.error => _GateContent(
+      icon: Icons.error_outline_rounded,
+      color: AppColors.error,
+      title: context.tr('Location Unavailable', 'الموقع غير متاح'),
+      body: context.tr(
+        'CAP could not start location tracking. Check permissions and try again.',
+        'تعذّر تشغيل تتبع الموقع. تحقق من الصلاحيات وحاول مجددًا.',
+      ),
+      action: context.tr('Try Again', 'إعادة المحاولة'),
+      actionIcon: Icons.refresh_rounded,
+    ),
+    GpsGateState.checking || GpsGateState.startingTracker => _GateContent(
+      icon: Icons.location_searching_rounded,
+      color: AppColors.info,
+      title: context.tr('Checking Location…', 'جارٍ التحقق من الموقع…'),
+      body: context.tr(
+        'CAP is verifying the device location requirements.',
+        'يتحقق CAP من متطلبات موقع الجهاز.',
+      ),
+      leading: const SizedBox(
+        width: 40,
+        height: 40,
+        child: CircularProgressIndicator(strokeWidth: 3),
+      ),
+    ),
+    GpsGateState.ready || GpsGateState.disabledByConfiguration => _GateContent(
+      icon: Icons.check_circle_outline_rounded,
+      color: AppColors.success,
+      title: context.tr('Ready', 'جاهز'),
+      body: '',
+    ),
+  };
 }
 
 class _GateContent {

@@ -61,6 +61,11 @@ foreground permission, background permission *and* `isTracking()` — it starts
 the tracker if it is missing, and it is idempotent so no second tracker is ever
 created.
 
+Routine GPS configuration checks and tracker startup run without a blocking
+screen. Missing foreground/Always permissions, disabled Location Services and
+reported errors still show the GPS blocking screen. Permission instructions
+explicitly request **Allow all the time** (Android) / **Always** (iOS).
+
 `AppRequirementGuard` is mounted once in `MaterialApp.builder`, so no screen owns
 the requirement; it shows `GpsBlockingScreen` (GPS first, then the periodic
 photo gate). Signed-out sessions are never blocked. The screen only reads the

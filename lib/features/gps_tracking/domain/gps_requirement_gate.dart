@@ -5,8 +5,9 @@ import 'gps_tracking_manager.dart';
 
 /// One centralized state for "does the CAP app satisfy the GPS requirements?".
 ///
-/// Only [ready] and [disabledByConfiguration] allow normal app usage; every
-/// other state blocks it. The state is derived, never stored as truth: it is
+/// Checks and tracker startup run without blocking normal app usage. Only a
+/// confirmed permission, Location Services or configuration/tracking error
+/// blocks it. The state is derived, never stored as truth: it is
 /// recomputed from the tracking manager and the native permission/location
 /// state whenever anything changes.
 enum GpsGateState {
@@ -37,6 +38,8 @@ enum GpsGateState {
 
   /// Whether normal CAP usage is allowed in this state.
   bool get allowsUsage =>
+      this == GpsGateState.checking ||
+      this == GpsGateState.startingTracker ||
       this == GpsGateState.ready ||
       this == GpsGateState.disabledByConfiguration;
 }
@@ -105,8 +108,12 @@ class GpsRequirementGate {
 
   Future<void> _run() async {
     _set(GpsGateState.checking);
-    await _manager.reconcile();
-    await _derive();
+    try {
+      await _manager.reconcile();
+      await _derive();
+    } catch (_) {
+      _set(GpsGateState.error);
+    }
   }
 
   /// Requests the platform permission flow, then re-derives (the native
@@ -137,6 +144,8 @@ class GpsRequirementGate {
         _deriveQueued = false;
         await _deriveOnce();
       } while (_deriveQueued);
+    } catch (_) {
+      _set(GpsGateState.error);
     } finally {
       _deriving = false;
     }
