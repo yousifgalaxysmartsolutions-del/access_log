@@ -232,7 +232,10 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(ApiRequestDetailsScreen), findsOneWidget);
         expect(repo.calls, [3]);
-        expect(find.text('Intervention Request'), findsOneWidget);
+        expect(
+          find.text(language == 'ar' ? 'طلب دخول' : 'Entry Request'),
+          findsOneWidget,
+        );
         expect(find.text('Pending'), findsWidgets);
         expect(tester.takeException(), isNull);
         await tester.tap(

@@ -423,6 +423,43 @@ void main() {
     },
   );
 
+  testWidgets(
+    'incident request buttons show distinct entry renewal departure labels',
+    (tester) async {
+      for (final lang in ['ar', 'en']) {
+        for (final entry in {
+          3: lang == 'ar' ? 'طلب دخول' : 'Entry Request',
+          4: lang == 'ar' ? 'طلب تجديد' : 'Renewal Request',
+          5: lang == 'ar' ? 'طلب خروج' : 'Departure Request',
+        }.entries) {
+          IncidentAvailableAction? selected;
+          await tester.pumpWidget(
+            app(
+              Scaffold(
+                bottomNavigationBar: IncidentActionArea(
+                  actions: resolver.resolve(incidentStatusId: entry.key),
+                  onActionSelected: (action) => selected = action,
+                ),
+              ),
+              lang: lang,
+            ),
+          );
+          expect(find.text(entry.value), findsOneWidget);
+          await tester.tap(find.text(entry.value));
+          expect(
+            selected?.type,
+            entry.key == 3
+                ? IncidentAction.interventionRequest
+                : entry.key == 4
+                ? IncidentAction.renewalRequest
+                : IncidentAction.departureRequest,
+          );
+          expect(tester.takeException(), isNull);
+        }
+      }
+    },
+  );
+
   testWidgets('Arabic RTL and English large text fit narrow action area', (
     tester,
   ) async {

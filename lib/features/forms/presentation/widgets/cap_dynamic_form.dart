@@ -121,10 +121,10 @@ class CapDynamicFormState extends State<CapDynamicForm> {
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
-        Text(form.title, style: Theme.of(context).textTheme.headlineSmall),
+        Text(form.title, style: Theme.of(context).textTheme.titleMedium),
         if (form.description.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 6),
             child: Text(
               form.description.replaceAll(RegExp(r'<[^>]*>'), '').trim(),
             ),
@@ -142,14 +142,15 @@ class CapDynamicFormState extends State<CapDynamicForm> {
         for (final question in state.visibleQuestions)
           Card(
             key: ValueKey('question-${form.id}-${question.id}'),
+            margin: const EdgeInsets.only(bottom: 8),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
                     '${question.title}${question.required ? ' *' : ''}',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
                   Text(
                     question.required
@@ -157,7 +158,7 @@ class CapDynamicFormState extends State<CapDynamicForm> {
                         : context.tr('Optional', 'اختياري'),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   AbsorbPointer(
                     key: _anchors.putIfAbsent(question.id, GlobalKey.new),
                     absorbing: state.submitting || state.submitted,
@@ -341,6 +342,7 @@ class _QuestionInputState extends State<_QuestionInput> {
             TextFormField(
               focusNode: widget.focusNode,
               controller: controller,
+              minLines: 1,
               maxLines: q.type == CapQuestionType.text ? 3 : 1,
               textDirection: q.type == CapQuestionType.text
                   ? null
@@ -352,6 +354,8 @@ class _QuestionInputState extends State<_QuestionInput> {
                     )
                   : TextInputType.text,
               decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.all(12),
                 border: const OutlineInputBorder(),
                 helperText: q.type == CapQuestionType.location
                     ? context.tr(
@@ -503,7 +507,7 @@ class _QuestionInputState extends State<_QuestionInput> {
                   ),
                   child: Image.memory(
                     evidence.bytes,
-                    height: 140,
+                    height: 72,
                     fit: BoxFit.contain,
                     errorBuilder: (_, _, _) =>
                         const Icon(Icons.broken_image_outlined),

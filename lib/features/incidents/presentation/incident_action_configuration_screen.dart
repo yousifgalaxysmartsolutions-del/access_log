@@ -231,7 +231,7 @@ class _IncidentActionConfigurationScreenState
               children: [
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
                     children: [
@@ -354,30 +354,43 @@ class _IncidentActionConfigurationScreenState
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(16),
-                                      child: AspectRatio(
-                                        aspectRatio: 4 / 3,
+                                      child: SizedBox(
+                                        height: state.photo == null ? 64 : 88,
+                                        width: double.infinity,
                                         child: state.photo == null
                                             ? ColoredBox(
                                                 color: Theme.of(
                                                   context,
                                                 ).colorScheme.surfaceContainer,
-                                                child: Column(
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.center,
-                                                  children: [
-                                                    const Icon(
-                                                      Icons
-                                                          .add_a_photo_outlined,
-                                                      size: 48,
-                                                    ),
-                                                    const SizedBox(height: 12),
-                                                    Text(
-                                                      context.tr(
-                                                        'Add a photo',
-                                                        'أضف صورة',
+                                                child: Padding(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 12,
                                                       ),
-                                                    ),
-                                                  ],
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      const Icon(
+                                                        Icons
+                                                            .add_a_photo_outlined,
+                                                        size: 24,
+                                                      ),
+                                                      const SizedBox(width: 10),
+                                                      Flexible(
+                                                        child: Text(
+                                                          context.tr(
+                                                            'Add a photo',
+                                                            'أضف صورة',
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
                                               )
                                             : Image.memory(
@@ -398,14 +411,14 @@ class _IncidentActionConfigurationScreenState
                                               ),
                                       ),
                                     ),
-                                    const SizedBox(height: 12),
+                                    const SizedBox(height: 6),
                                     if (state.photoFailure != null)
                                       _ErrorNotice(
                                         message: state.photoFailure!.message,
                                       ),
                                     Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
+                                      spacing: 6,
+                                      runSpacing: 4,
                                       children: [
                                         OutlinedButton.icon(
                                           onPressed: state.photoBusy
@@ -513,8 +526,8 @@ class _IncidentActionConfigurationScreenState
                                 child: TextFormField(
                                   key: const ValueKey('execution-remark'),
                                   initialValue: state.remark,
-                                  minLines: 3,
-                                  maxLines: 6,
+                                  minLines: 2,
+                                  maxLines: 4,
                                   onChanged: coordinator.setRemark,
                                   decoration: InputDecoration(
                                     hintText: context.tr(
@@ -565,50 +578,110 @@ class _IncidentActionConfigurationScreenState
                           ],
                           if (selecting) ...[
                             Container(
-                              padding: const EdgeInsets.all(20),
+                              width: double.infinity,
                               margin: const EdgeInsets.only(bottom: 20),
+                              padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primaryContainer,
+                                gradient: LinearGradient(
+                                  begin: AlignmentDirectional.topStart,
+                                  end: AlignmentDirectional.bottomEnd,
+                                  colors: [
+                                    Theme.of(context).colorScheme.primaryContainer,
+                                    Theme.of(context).colorScheme.surface,
+                                  ],
+                                ),
                                 borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withOpacity(0.12),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .shadow
+                                        .withOpacity(0.06),
+                                    blurRadius: 24,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ],
                               ),
-                              child: Column(
+                              child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(
-                                    Icons.group_outlined,
-                                    size: 32,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimaryContainer,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    context.tr(
-                                      'Choose an engineer',
-                                      'اختر المهندس',
-                                    ),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onPrimaryContainer,
-                                          fontWeight: FontWeight.w700,
+                                  // Modern icon container
+                                  Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.primary,
+                                      borderRadius: BorderRadius.circular(18),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary
+                                              .withOpacity(0.20),
+                                          blurRadius: 14,
+                                          offset: const Offset(0, 6),
                                         ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    context.tr(
-                                      'Select a team member to assign this incident.',
-                                      'اختر أحد أعضاء الفريق لإسناد البلاغ إليه.',
+                                      ],
                                     ),
-                                    style: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onPrimaryContainer,
+                                    child: Icon(
+                                      Icons.group_outlined,
+                                      size: 28,
+                                      color: Theme.of(context).colorScheme.onPrimary,
+                                    ),
+                                  ),
+
+                                  const SizedBox(width: 16),
+
+                                  // Header content
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 2),
+
+                                        Text(
+                                          context.tr(
+                                            'Choose an engineer',
+                                            'اختر المهندس',
+                                          ),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge
+                                              ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurface,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: -0.3,
+                                            height: 1.25,
+                                          ),
+                                        ),
+
+                                        const SizedBox(height: 8),
+
+                                        Text(
+                                          context.tr(
+                                            'Select a team member to assign this incident.',
+                                            'اختر أحد أعضاء الفريق لإسناد البلاغ إليه.',
+                                          ),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                            height: 1.55,
+                                            fontWeight: FontWeight.w400,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -837,40 +910,31 @@ class _RequirementCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Card(
       key: sectionKey,
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 10),
       elevation: 0,
       color: colors.surfaceContainerLow,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: colors.outlineVariant),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, color: colors.primary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
             Wrap(
-              spacing: 12,
-              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
               children: [
+                Icon(icon, size: 20, color: colors.primary),
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
                 if (required)
                   Text(
                     context.tr('Required', 'مطلوب'),
-                    style: TextStyle(color: colors.onSurfaceVariant),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
                   ),
                 if (completed && !busy)
                   Row(
@@ -881,7 +945,8 @@ class _RequirementCard extends StatelessWidget {
                       Flexible(
                         child: Text(
                           context.tr('Completed', 'مكتمل'),
-                          style: TextStyle(color: colors.primary),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.primary),
                         ),
                       ),
                     ],
@@ -893,7 +958,7 @@ class _RequirementCard extends StatelessWidget {
                 padding: EdgeInsets.only(top: 12),
                 child: LinearProgressIndicator(),
               ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             child,
           ],
         ),

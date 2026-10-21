@@ -84,21 +84,21 @@ class ApiRequestDetailsScreen extends StatelessWidget {
                       physics: const AlwaysScrollableScrollPhysics(),
                       children: [
                         Text(
-                          context.tr('Request #${data.id}', 'طلب #${data.id}'),
+                          context.requestTypeLabel(
+                            data.requestType?.id,
+                            name: data.requestType?.name,
+                          ),
                           style: AppTypography.title,
                         ),
                         const SizedBox(height: 8),
+                        Text(
+                          context.tr('Request #${data.id}', 'طلب #${data.id}'),
+                          style: AppTypography.meta,
+                        ),
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            Chip(
-                              avatar: const Icon(
-                                Icons.description_outlined,
-                                size: 18,
-                              ),
-                              label: Text(_text(data.requestType?.name)),
-                            ),
                             Chip(
                               avatar: const Icon(Icons.info_outline, size: 18),
                               label: Text(_text(data.requestStatus?.name)),

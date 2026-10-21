@@ -135,21 +135,21 @@ class _AppShellState extends State<AppShell> {
       floatingActionButton: Semantics(
         button: true,
         label: context.tr('Open Tower Map', 'فتح خريطة الأبراج'),
-        child: FloatingActionButton.large(
+        child: FloatingActionButton(
           heroTag: 'tower-map-navigation-button',
           tooltip: context.tr('Tower Map', 'خريطة الأبراج'),
           backgroundColor: AppColors.orange,
           foregroundColor: AppColors.ink,
-          elevation: 5,
+          elevation: 8,
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const TowerMapScreen()),
           ),
-          child: const Icon(Icons.map_rounded, size: 30),
+          child: const Icon(Icons.map_rounded, size: 40),
         ),
       ),
       bottomNavigationBar: BottomAppBar(
-        height: 76,
+        height: 68,
         padding: EdgeInsets.zero,
         notchMargin: 8,
         shape: const CircularNotchedRectangle(),

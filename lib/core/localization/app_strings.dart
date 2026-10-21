@@ -45,4 +45,21 @@ extension StringsX on BuildContext {
   AppStrings get strings => AppStrings(Localizations.localeOf(this));
   String tr(String english, String arabic) =>
       strings.isArabic ? arabic : english;
+
+  /// Presentation labels only; request IDs and API payloads stay unchanged.
+  String requestTypeLabel(int? id, {String? name, String? code}) {
+    final value = (code ?? name ?? '').trim().toLowerCase();
+    if (id == 1 || value.contains('intervention')) {
+      return tr('Entry Request', 'طلب دخول');
+    }
+    if (id == 2 || value.contains('renewal')) {
+      return tr('Renewal Request', 'طلب تجديد');
+    }
+    if (id == 3 || value.contains('departure')) {
+      return tr('Departure Request', 'طلب خروج');
+    }
+    return name?.trim().isNotEmpty == true
+        ? name!.trim()
+        : tr('Request type unavailable', 'نوع الطلب غير متاح');
+  }
 }

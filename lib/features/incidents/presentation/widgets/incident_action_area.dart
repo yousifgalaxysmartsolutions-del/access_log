@@ -131,13 +131,13 @@ class IncidentActionArea extends StatelessWidget {
         AppButtonStyle.primary,
       ),
       IncidentAction.interventionRequest => (
-        'New Request',
-        'طلب جديد',
+        'Entry Request',
+        'طلب دخول',
         Icons.login,
         AppButtonStyle.primary,
       ),
       IncidentAction.renewalRequest => (
-        'New Request (Renewal)',
+        'Renewal Request',
         'طلب تجديد',
         Icons.autorenew,
         AppButtonStyle.secondary,
@@ -149,8 +149,8 @@ class IncidentActionArea extends StatelessWidget {
         AppButtonStyle.primary,
       ),
       IncidentAction.departureRequest => (
-        'New Request (Departure)',
-        'طلب مغادرة',
+        'Departure Request',
+        'طلب خروج',
         Icons.logout,
         AppButtonStyle.primary,
       ),

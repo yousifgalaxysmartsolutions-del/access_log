@@ -77,6 +77,39 @@ void main() {
     await tester.pump();
   }
 
+  for (final language in ['en', 'ar']) {
+    testWidgets(
+      'request cards distinguish entry, renewal and departure in $language',
+      (tester) async {
+        bloc.show(
+          bloc.state.copyWith(
+            items: [
+              for (final id in [1, 2, 3])
+                RequestListItemDto(
+                  id: id,
+                  requestType: IdNameDto(id: id, name: 'Request'),
+                ),
+            ],
+            totalCount: 3,
+          ),
+        );
+        await open(tester, lang: language);
+        for (final label
+            in language == 'ar'
+                ? ['طلب دخول', 'طلب تجديد', 'طلب خروج']
+                : ['Entry Request', 'Renewal Request', 'Departure Request']) {
+          await tester.scrollUntilVisible(
+            find.text(label).last,
+            140,
+            scrollable: find.byType(Scrollable).first,
+          );
+          expect(find.text(label), findsWidgets);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('engineer cannot see decision buttons for pending requests', (
     tester,
   ) async {

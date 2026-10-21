@@ -359,7 +359,13 @@ class _RequestReadViewState extends State<_RequestReadView> {
                                 start: 8,
                               ),
                               child: ChoiceChip(
-                                label: Text(_value(item.name)),
+                                label: Text(
+                                  context.requestTypeLabel(
+                                    item.id,
+                                    name: item.name,
+                                    code: item.code,
+                                  ),
+                                ),
                                 selected:
                                     item.id != null &&
                                     item.id == state.requestTypeId,
@@ -513,14 +519,26 @@ class _RequestReadViewState extends State<_RequestReadView> {
 List<DropdownMenuItem<int>> _lookupOptions(
   BuildContext context,
   List<RequestLookupItemDto> items,
-  int selected,
-) {
+  int selected, {
+  bool requestTypes = false,
+}) {
   final seen = <int>{-1};
   return [
     DropdownMenuItem(value: -1, child: Text(context.tr('All', 'الكل'))),
     for (final item in items)
       if (item.id != null && seen.add(item.id!))
-        DropdownMenuItem(value: item.id, child: Text(_value(item.name))),
+        DropdownMenuItem(
+          value: item.id,
+          child: Text(
+            requestTypes
+                ? context.requestTypeLabel(
+                    item.id,
+                    name: item.name,
+                    code: item.code,
+                  )
+                : _value(item.name),
+          ),
+        ),
     if (!seen.contains(selected))
       DropdownMenuItem(value: selected, child: Text('$selected')),
   ];
@@ -668,6 +686,7 @@ class _RequestFilterSheetState extends State<RequestFilterSheet> {
                       context,
                       state.lookupData?.requestType ?? [],
                       type,
+                      requestTypes: true,
                     ),
                     onChanged: ready
                         ? (value) => setState(() => type = value!)
@@ -754,11 +773,17 @@ class RequestCard extends StatelessWidget {
         .where((item) => item.id != null && item.id == request.requestType?.id)
         .firstOrNull;
     final code = (type?.code ?? request.requestType?.name ?? '').toLowerCase();
-    final icon = code.contains('intervention')
-        ? Icons.build_circle_outlined
-        : code.contains('renewal')
+    final typeId = request.requestType?.id;
+    final typeLabel = context.requestTypeLabel(
+      typeId,
+      name: request.requestType?.name,
+      code: type?.code,
+    );
+    final icon = typeId == 1 || code.contains('intervention')
+        ? Icons.login
+        : typeId == 2 || code.contains('renewal')
         ? Icons.autorenew
-        : code.contains('departure')
+        : typeId == 3 || code.contains('departure')
         ? Icons.logout
         : Icons.description_outlined;
     final statusLookup = lookup?.requestStatus
@@ -768,11 +793,11 @@ class RequestCard extends StatelessWidget {
         .firstOrNull;
     final status = (statusLookup?.code ?? request.requestStatus?.name)
         ?.toLowerCase();
-    final typeColor = code.contains('renewal')
+    final typeColor = typeId == 2 || code.contains('renewal')
         ? AppColors.info
-        : code.contains('departure')
+        : typeId == 3 || code.contains('departure')
         ? AppColors.success
-        : code.contains('intervention')
+        : typeId == 1 || code.contains('intervention')
         ? AppColors.orange
         : AppColors.muted;
     final color = switch (status) {
@@ -814,15 +839,13 @@ class RequestCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text(typeLabel, style: AppTypography.section),
+                        const SizedBox(height: 3),
                         Text(
                           context.tr(
                             'Request #${request.id ?? '-'}',
                             'طلب #${request.id ?? '-'}',
                           ),
-                          style: AppTypography.section,
-                        ),
-                        Text(
-                          _value(request.requestType?.name),
                           style: AppTypography.meta,
                         ),
                       ],
