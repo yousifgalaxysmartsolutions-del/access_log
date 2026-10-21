@@ -8,11 +8,20 @@ import '../../../../core/network/cap/cap_request.dart';
 import '../../../../core/network/cap/general_response.dart';
 import '../../../../core/network/result.dart';
 import '../../domain/repositories/request_creation_repository.dart';
+import '../../../incidents/domain/repositories/incident_details_repository.dart';
+import '../../../periodic_photo/domain/today_in_process_incident_service.dart';
 import '../api/request_api_service.dart';
 import '../models/request_creation_models.dart';
 
 class RequestCreationRepositoryImpl implements RequestCreationRepository {
-  const RequestCreationRepositoryImpl(this.api, this.context);
+  const RequestCreationRepositoryImpl(
+    this.api,
+    this.context, {
+    this.inProcessIncidents,
+    this.incidentDetails,
+  });
+  final TodayInProcessIncidentService? inProcessIncidents;
+  final IncidentDetailsRepository? incidentDetails;
   final RequestApiService api;
   final ApiRequestContextProvider context;
   Future<Result<T>> _perform<T, P>(
@@ -80,19 +89,33 @@ class RequestCreationRepositoryImpl implements RequestCreationRepository {
   }
 
   @override
-  Future<Result<void>> create(RequestExecutionContext input) {
+  Future<Result<void>> create(RequestExecutionContext input) async {
     if (!input.canSubmit ||
         input.incidentId <= 0 ||
         input.requestTypeId <= 0 ||
         input.noOfMinute < 0) {
-      return Future.value(const FailureResult(ValidationFailure()));
+      return const FailureResult(ValidationFailure());
     }
-    return _perform(input, api.createRequest, (response) {
-      _parse<Object>(
-        response,
-        (raw) => raw as Object,
-        'CAP/CapRequest/CreateRequest',
+    final stamp = inProcessIncidents?.beginObservation();
+    final result = await _perform<void, RequestExecutionContext>(
+      input,
+      api.createRequest,
+      (response) {
+        _parse<Object>(
+          response,
+          (raw) => raw as Object,
+          'CAP/CapRequest/CreateRequest',
+        );
+      },
+    );
+    if (result is Success<void> && stamp != null) {
+      await inProcessIncidents!.recordSuccessfulAction(
+        incidentId: input.incidentId,
+        stamp: stamp,
+        allowEntry: input.requestTypeId == 1,
+        details: incidentDetails,
       );
-    });
+    }
+    return result;
   }
 }

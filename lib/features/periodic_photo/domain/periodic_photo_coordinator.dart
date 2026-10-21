@@ -4,6 +4,7 @@ import '../../../core/network/result.dart';
 import '../../incidents/domain/repositories/system_gps_configuration_repository.dart';
 import 'periodic_photo_schedule.dart';
 import '../data/periodic_photo_schedule_store.dart';
+import 'today_in_process_incident_service.dart';
 
 /// Whether the periodic photo requirement is currently derivable.
 enum PeriodicPhotoScheduleState {
@@ -79,9 +80,22 @@ class PeriodicPhotoCoordinator {
     required SystemGpsConfigurationRepository configuration,
     required PeriodicPhotoScheduleStore store,
     DateTime Function()? now,
+    TodayInProcessIncidentService? incidents,
   }) : _configuration = configuration,
        _store = store,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now,
+       _incidents = incidents {
+    _incidentSubscription = incidents?.changes.listen((_) {
+      if (_configurationLoaded) {
+        unawaited(_ensureSchedule());
+      } else {
+        _emit();
+      }
+    });
+  }
+  final TodayInProcessIncidentService? _incidents;
+  StreamSubscription<void>? _incidentSubscription;
+  bool get _hasWork => _incidents?.hasEligibleIncident ?? true;
 
   final SystemGpsConfigurationRepository _configuration;
   final PeriodicPhotoScheduleStore _store;
@@ -103,6 +117,7 @@ class PeriodicPhotoCoordinator {
 
   Future<void>? _reconciling;
   bool _pendingReconcile = false;
+  bool _disposed = false;
   Timer? _timer;
 
   /// Reconciles the timing policy with the system configuration.
@@ -112,6 +127,7 @@ class PeriodicPhotoCoordinator {
   /// call that arrives mid-run requests exactly one follow-up pass. Never
   /// periodic: nothing here polls `GetSystemConfiguration`.
   Future<void> reconcile() {
+    if (_disposed) return Future.value();
     final active = _reconciling;
     if (active != null) {
       _pendingReconcile = true;
@@ -129,7 +145,10 @@ class PeriodicPhotoCoordinator {
   }
 
   Future<void> _run() async {
+    await _incidents?.restore();
+    if (_disposed) return;
     final result = await _configuration.load();
+    if (_disposed) return;
     switch (result) {
       case FailureResult():
         // A refresh failure neither creates nor cancels a requirement: the last
@@ -158,6 +177,7 @@ class PeriodicPhotoCoordinator {
   /// what keeps a restart from restarting the interval). It is only recomputed
   /// when there is none yet or the configured interval changed.
   Future<void> _ensureSchedule() async {
+    if (_disposed) return;
     final interval = _intervalMinutes;
     if (interval == null) {
       _emit();
@@ -165,7 +185,18 @@ class PeriodicPhotoCoordinator {
     }
     if (!_scheduleLoaded) {
       _schedule = await _store.read() ?? const PeriodicPhotoSchedule();
+      if (_disposed) return;
       _scheduleLoaded = true;
+    }
+    final workScope = _incidents?.scope;
+    if (workScope != null && (_schedule.workScope != workScope || !_hasWork)) {
+      _schedule = PeriodicPhotoSchedule(workScope: workScope);
+      await _persist();
+    }
+    if (!_hasWork || !_configurationEnabled) {
+      _stopTimer();
+      _emit();
+      return;
     }
     if (_schedule.nextPhotoDueAt == null ||
         _schedule.intervalMinutes != interval) {
@@ -215,6 +246,7 @@ class PeriodicPhotoCoordinator {
     return schedule.copyWith(
       nextPhotoDueAt: anchor.add(duration),
       intervalMinutes: interval,
+      workScope: _incidents?.scope,
     );
   }
 
@@ -223,6 +255,13 @@ class PeriodicPhotoCoordinator {
   /// This is the *only* place the deadline moves forward, so the next
   /// requirement is never scheduled before the current one is satisfied.
   Future<void> markCompleted() async {
+    if (!_hasWork) {
+      _schedule = PeriodicPhotoSchedule(workScope: _incidents?.scope);
+      await _persist();
+      _stopTimer();
+      _emit();
+      return;
+    }
     final interval = _intervalMinutes;
     if (interval == null) {
       _emit();
@@ -233,6 +272,7 @@ class PeriodicPhotoCoordinator {
       lastPeriodicPhotoAt: now,
       nextPhotoDueAt: now.add(Duration(minutes: interval)),
       intervalMinutes: interval,
+      workScope: _incidents?.scope,
     );
     // Persisted best-effort: CAP already accepted the photo, so a failed local
     // write must not leave the gate stuck in `submitting` or re-ask the user
@@ -259,7 +299,8 @@ class PeriodicPhotoCoordinator {
   /// opens a camera; the blocking UI appears when the user returns.
   void _arm() {
     _stopTimer();
-    if (!_configurationEnabled || _intervalMinutes == null) return;
+    if (_disposed) return;
+    if (!_configurationEnabled || !_hasWork || _intervalMinutes == null) return;
     final nextDue = _schedule.nextPhotoDueAt;
     if (nextDue == null) return;
     final delay = nextDue.difference(_now());
@@ -278,6 +319,7 @@ class PeriodicPhotoCoordinator {
   }
 
   void _emit() {
+    if (_disposed) return;
     final next = _build();
     if (next == _snapshot) return;
     _snapshot = next;
@@ -285,7 +327,7 @@ class PeriodicPhotoCoordinator {
   }
 
   PeriodicPhotoSnapshot _build() {
-    if (!_configurationEnabled || _intervalMinutes == null) {
+    if (!_configurationEnabled || !_hasWork || _intervalMinutes == null) {
       // Before the first successful load nothing is known yet; after that a
       // disabled configuration is an explicit `disabled`.
       final state = _configurationLoaded
@@ -308,7 +350,9 @@ class PeriodicPhotoCoordinator {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
     _stopTimer();
+    await _incidentSubscription?.cancel();
     // Deliberately not closed: nothing waits for the done event, and closing
     // after listeners have cancelled deadlocks widget-test fake async.
   }

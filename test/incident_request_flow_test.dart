@@ -1,6 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:access_log_plus/core/session/session_manager.dart';
+import 'package:access_log_plus/features/periodic_photo/domain/today_in_process_incident_service.dart';
+import 'package:access_log_plus/features/incidents/data/models/incident_details_models.dart';
+import 'support/periodic_photo_fakes.dart' show MemoryTokenStorage;
+import 'today_in_process_incident_test.dart'
+    show MemoryIncidentStore, ActionDetails;
 import 'package:dio/dio.dart';
 import 'package:access_log_plus/core/network/cap/api_request_context.dart';
 import 'package:access_log_plus/core/network/cap/cap_device_app_info.dart';
@@ -59,6 +65,93 @@ class _Transport implements HttpClientAdapter {
 }
 
 void repositoryTests() {
+  test(
+    'only successful Entry with verified incident status enrolls local work',
+    () async {
+      final session = SessionManager(MemoryTokenStorage())..startDemo();
+      session.user = const SessionUser(id: '4099');
+      final work = TodayInProcessIncidentService(
+        session: session,
+        store: MemoryIncidentStore(),
+      );
+      final details = ActionDetails(
+        Success(
+          IncidentDetailsData.fromJson({
+            'id': 17,
+            'status': {'id': 3},
+            'assignedEngineer': {'id': 4099},
+          }),
+        ),
+      );
+      final adapter = _Transport();
+      final dio = Dio(BaseOptions(baseUrl: 'https://cap.test'))
+        ..httpClientAdapter = adapter;
+      addTearDown(() async {
+        dio.close();
+        await work.dispose();
+        await session.dispose();
+      });
+      final repository = RequestCreationRepositoryImpl(
+        RequestApiService(dio),
+        ApiRequestContextProvider(
+          users: null,
+          currentUser: () => session.user,
+          deviceInfo: CapDeviceAppInfoProvider(
+            appVersion: '1',
+            deviceType: 'Android',
+            osVersion: '15',
+          ),
+        ),
+        inProcessIncidents: work,
+        incidentDetails: details,
+      );
+      final input = RequestExecutionContext(
+        incidentId: 17,
+        requestTypeId: 1,
+        newStatusId: 1,
+      );
+      expect(await repository.create(input), isA<Success<void>>());
+      expect(
+        work.hasEligibleIncident,
+        false,
+        reason:
+            'successful request can leave incident Pending; NewStatusId=1 is not incident status',
+      );
+      details.result = Success(
+        IncidentDetailsData.fromJson({
+          'id': 17,
+          'incidentNo': 'INC-17',
+          'status': {'id': 4},
+          'assignedEngineer': {'id': 4099},
+        }),
+      );
+      adapter.code = 0;
+      final beforeFailure = details.calls;
+      expect(await repository.create(input), isA<FailureResult<void>>());
+      expect(details.calls, beforeFailure);
+      expect(work.hasEligibleIncident, false);
+      adapter.code = 1;
+      expect(await repository.create(input), isA<Success<void>>());
+      expect(work.latest!.id, 17);
+      await repository.create(
+        RequestExecutionContext(
+          incidentId: 17,
+          requestTypeId: 2,
+          newStatusId: 1,
+        ),
+      );
+      expect(
+        work.latest!.id,
+        17,
+        reason: 'Renewal NewStatusId must not evict incident work',
+      );
+      expect(
+        adapter.calls.every((r) => r.path.endsWith('/CreateRequest')),
+        true,
+      );
+    },
+  );
+
   test(
     'Retrofit uses exact endpoints/envelopes; repository blocks missing status before HTTP',
     () async {

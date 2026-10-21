@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,7 @@ import 'package:access_log_plus/core/network/cap/cap_parse_diagnostics.dart';
 import 'package:access_log_plus/core/network/cap/general_response.dart';
 import 'package:access_log_plus/core/network/api_response.dart';
 import 'package:access_log_plus/core/network/result.dart';
+import 'package:access_log_plus/core/network/interceptors/logging_interceptor.dart';
 
 /// Produces the exact throwable json_serializable raises on a type mismatch:
 /// `type 'String' is not a subtype of type 'int'`.
@@ -23,7 +25,65 @@ class _UnexpectedError extends Error {
   String toString() => '_UnexpectedError: $message';
 }
 
+class _HandledLogError extends ErrorInterceptorHandler {
+  @override
+  void next(DioException err) {}
+}
+
 void main() {
+  test('debug HTTP logs show complete request, response and error values', () {
+    final original = debugPrint;
+    final output = <String>[];
+    debugPrint = (String? message, {int? wrapWidth}) {
+      output.add(message ?? '');
+    };
+    addTearDown(() => debugPrint = original);
+    final bytes = List<int>.generate(200, (i) => i % 256);
+    final photo = List.filled(17000, 'a').join();
+    final body = {
+      'devicetoken': 'test-device-value',
+      'data': {
+        'Password': 'test-password-value',
+        'Photo': photo,
+        'PhotoBytes': bytes,
+        'Answers': [
+          {'TextAnswer': 'jpg', 'AnswerBytes': bytes},
+        ],
+      },
+    };
+    final request = RequestOptions(
+      path: 'https://example.invalid/api/CreateRequest',
+      data: body,
+      headers: {'Authorization': 'Bearer test-access-value'},
+    );
+    final interceptor = SafeLoggingInterceptor();
+    interceptor.onRequest(request, RequestInterceptorHandler());
+    final logged =
+        jsonDecode(output.last.substring(output.last.indexOf('\n') + 1)) as Map;
+    expect(logged['body'], body);
+    expect(
+      (logged['headers'] as Map)['Authorization'],
+      'Bearer test-access-value',
+    );
+    expect(output.last, isNot(contains('[REDACTED]')));
+    expect(output.last, isNot(contains('[truncated]')));
+    interceptor.onResponse(
+      Response(
+        requestOptions: request,
+        data: {'AccessToken': 'test-response-token'},
+      ),
+      ResponseInterceptorHandler(),
+    );
+    expect(output.last, contains('test-response-token'));
+    interceptor.onError(
+      DioException(requestOptions: request, message: 'test-password-value'),
+      _HandledLogError(),
+    );
+    expect(output.last, contains('test-password-value'));
+    expect(output.last, contains('test-device-value'));
+    expect(request.data, body);
+  });
+
   group('redaction never leaks credentials', () {
     test('credential keys are removed at every nesting level', () {
       final redacted = redactCapPayload({

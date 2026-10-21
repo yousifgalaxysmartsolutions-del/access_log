@@ -13,6 +13,11 @@ import 'package:access_log_plus/features/incidents/data/api/incident_api_service
 import 'package:access_log_plus/features/incidents/data/models/incident_list_models.dart';
 import 'package:access_log_plus/features/incidents/data/repositories/incident_repository_impl.dart';
 import 'package:access_log_plus/models/models.dart';
+import 'package:access_log_plus/core/session/session_manager.dart';
+import 'package:access_log_plus/features/periodic_photo/domain/today_in_process_incident_service.dart';
+import 'package:access_log_plus/features/incidents/data/repositories/incident_details_repository_impl.dart';
+import 'support/periodic_photo_fakes.dart' show MemoryTokenStorage;
+import 'today_in_process_incident_test.dart' show MemoryIncidentStore;
 
 class _StubAdapter implements HttpClientAdapter {
   _StubAdapter(this.body);
@@ -96,6 +101,84 @@ final _payload = <String, dynamic>{
 };
 
 void main() {
+  test(
+    'list and normal details reads never change action-only work cache',
+    () async {
+      final now = DateTime(2026, 10, 20, 10);
+      final session = SessionManager(MemoryTokenStorage())..startDemo();
+      session.user = const SessionUser(id: '4099');
+      final cache = TodayInProcessIncidentService(
+        session: session,
+        store: MemoryIncidentStore(),
+        now: () => now,
+      );
+      addTearDown(() async {
+        await cache.dispose();
+        await session.dispose();
+      });
+      final adapter = _StubAdapter({});
+      var failSecondPage = false;
+      adapter.respond = (options) {
+        if (options.path.endsWith('GetIncidentDetails')) {
+          return {
+            'resultcode': 1,
+            'data': {
+              'id': 1,
+              'status': {'id': 7},
+            },
+          };
+        }
+        final page = ((options.data as Map)['data'] as Map)['Page'] as int;
+        return {
+          'resultcode': failSecondPage && page == 2 ? 0 : 1,
+          'data': {
+            'items': [
+              {
+                'incidentId': page,
+                'incidentNo': 'INC-$page',
+                'status': {'id': 4},
+                'currentUser': {'id': 4099},
+                'startDate': '2026-10-20T0${page + 7}:00:00',
+              },
+            ],
+            'totalCount': 2,
+            'page': page,
+            'pageSize': 1,
+          },
+        };
+      };
+      final dio = Dio(BaseOptions(baseUrl: 'https://cap.test'))
+        ..httpClientAdapter = adapter;
+      addTearDown(dio.close);
+      final context = ApiRequestContextProvider(
+        users: null,
+        currentUser: () => session.user,
+        deviceInfo: CapDeviceAppInfoProvider(
+          osVersion: '15',
+          deviceType: 'Android',
+          appVersion: '1',
+        ),
+      );
+      final api = IncidentApiService(dio);
+      final repository = IncidentRepositoryImpl(api, context);
+      await cache.confirmStatus(1, status: 4, generation: session.generation);
+      await repository.getIncidentsForDay(day: now);
+      expect(adapter.requests.length, 2);
+      expect(cache.incidents.length, 1);
+      expect(cache.latest!.id, 1);
+      final details = IncidentDetailsRepositoryImpl(api, context);
+      await details.getIncidentDetails(incidentId: 1, incidentNo: 'INC-1');
+      expect(cache.contains(1), true);
+      failSecondPage = true;
+      await repository.getIncidentsForDay(day: now);
+      expect(
+        cache.contains(1),
+        true,
+        reason: 'list responses never modify locally confirmed work',
+      );
+      expect(cache.contains(2), false);
+    },
+  );
   ApiRequestContextProvider contextWith(SessionUser? user) =>
       ApiRequestContextProvider(
         users: _FixedUsers(user),

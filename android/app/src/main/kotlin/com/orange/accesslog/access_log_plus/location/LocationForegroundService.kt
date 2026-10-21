@@ -12,6 +12,7 @@ import android.location.Location
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -127,13 +128,29 @@ class LocationForegroundService : Service(), LocationListener {
         if (isDuplicate(location)) return
         if (!GpsPointValidator.isUsable(location)) return
         lastAccepted = location
-        writes.execute {
-            // Publish the point only after it is durably persisted. The event is
-            // best-effort: a missing Flutter listener changes nothing, capture
-            // never waits on the upload path.
-            if (store.appendLocation(applicationContext, location)) {
-                GpsEventBus.emit(GpsTrackingConstants.EVENT_LOCATION_CAPTURED)
+        // FLP wakes us for delivery. Keep the CPU awake only until the async
+        // disk write finishes; never hold a permanent tracking/screen lock.
+        val writeLock = try {
+            val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+            power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:gps-write")
+                .apply { acquire(30_000L) }
+        } catch (_: Exception) {
+            null
+        }
+        try {
+            writes.execute {
+                // Publish only after persistence; capture never waits on upload.
+                try {
+                    if (store.appendLocation(applicationContext, location)) {
+                        GpsEventBus.emit(GpsTrackingConstants.EVENT_LOCATION_CAPTURED)
+                    }
+                } finally {
+                    if (writeLock?.isHeld == true) writeLock.release()
+                }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // A queued location can race service shutdown after Recents removal.
+            if (writeLock?.isHeld == true) writeLock.release()
         }
     }
 

@@ -2,6 +2,7 @@ package com.orange.accesslog.access_log_plus.location
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -9,6 +10,10 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.net.Uri
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -16,6 +21,7 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import com.orange.accesslog.access_log_plus.R
 
 /**
  * Flutter bridge for continuous background tracking.
@@ -32,6 +38,66 @@ class LocationBridge(
     private val methodChannel = MethodChannel(messenger, GpsTrackingConstants.METHOD_CHANNEL)
     private val eventChannel = EventChannel(messenger, GpsTrackingConstants.EVENT_CHANNEL)
     private var pendingPermission: MethodChannel.Result? = null
+    private var resumed = false
+    private var batteryDialog: AlertDialog? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val batteryCheck = Runnable { offerBatteryExemption() }
+
+    fun onResume() {
+        resumed = true
+        scheduleBatteryCheck()
+    }
+
+    fun onPause() {
+        resumed = false
+        handler.removeCallbacks(batteryCheck)
+    }
+
+    private fun scheduleBatteryCheck() {
+        handler.removeCallbacks(batteryCheck)
+        if (resumed) handler.postDelayed(batteryCheck, 750)
+    }
+
+    private fun offerBatteryExemption() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !resumed ||
+            activity.isFinishing || activity.isDestroyed || batteryDialog != null ||
+            pendingPermission != null || !LocationForegroundService.isRunning ||
+            GpsTrackingConfig.from(activity)?.continuousGpsTracking != true
+        ) return
+        val power = activity.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        if (power.isIgnoringBatteryOptimizations(activity.packageName) ||
+            prefs().getBoolean(KEY_BATTERY_OFFERED, false)
+        ) return
+
+        // Explain the battery cost first. Declining never blocks app usage or
+        // tracking and never causes a repeated prompt on each app resume.
+        batteryDialog = AlertDialog.Builder(activity)
+            .setTitle(R.string.gps_battery_title)
+            .setMessage(R.string.gps_battery_message)
+            .setPositiveButton(R.string.gps_battery_allow) { _, _ ->
+                prefs().edit().putBoolean(KEY_BATTERY_OFFERED, true).apply()
+                try {
+                    activity.startActivity(Intent(
+                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:${activity.packageName}"),
+                    ))
+                } catch (_: Exception) {
+                    try {
+                        activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    } catch (_: Exception) {
+                        // Some vendors have no matching settings activity.
+                    }
+                }
+            }
+            .setNegativeButton(R.string.gps_battery_later) { _, _ ->
+                prefs().edit().putBoolean(KEY_BATTERY_OFFERED, true).apply()
+            }
+            .setOnCancelListener {
+                prefs().edit().putBoolean(KEY_BATTERY_OFFERED, true).apply()
+            }
+            .setOnDismissListener { batteryDialog = null }
+            .show()
+    }
 
     /**
      * Event-driven Location Services monitor. The OS broadcasts when the user
@@ -68,6 +134,9 @@ class LocationBridge(
     }
 
     fun detach() {
+        onPause()
+        batteryDialog?.dismiss()
+        batteryDialog = null
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
         GpsEventBus.attach(null)
@@ -88,6 +157,7 @@ class LocationBridge(
                 val config = GpsTrackingConfig.fromChannel(call.arguments as? Map<*, *>)
                 config.persist(activity)
                 LocationForegroundService.update(activity)
+                scheduleBatteryCheck()
                 result.success(null)
             }
             GpsTrackingConstants.GET_PERMISSION_STATUS ->
@@ -155,6 +225,7 @@ class LocationBridge(
             else -> {
                 try {
                     LocationForegroundService.start(activity)
+                    scheduleBatteryCheck()
                     result.success(true)
                 } catch (error: Exception) {
                     // e.g. background start restriction on Android 12+.
@@ -285,5 +356,6 @@ class LocationBridge(
         private const val REQUEST_BACKGROUND = 0x4703
         private const val PREFS = "cap_gps_tracking"
         private const val KEY_REQUESTED = "permission_requested"
+        private const val KEY_BATTERY_OFFERED = "battery_exemption_offered"
     }
 }

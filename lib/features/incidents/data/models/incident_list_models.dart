@@ -140,6 +140,8 @@ class IncidentListItem {
     this.locationCode = '',
     this.latitude,
     this.longitude,
+    this.currentUserId,
+    this.inProcessAt,
   });
 
   final int incidentId;
@@ -159,6 +161,8 @@ class IncidentListItem {
   /// Creation date returned by CAP, without changing its timezone.
   final DateTime? occurredAt;
   final double? latitude, longitude;
+  final int? currentUserId;
+  final DateTime? inProcessAt;
 
   factory IncidentListItem.fromJson(
     Map<String, dynamic> json,
@@ -184,6 +188,10 @@ class IncidentListItem {
     occurredAt: _readOccurredAt(json),
     latitude: (json['latitude'] as num?)?.toDouble(),
     longitude: (json['longitude'] as num?)?.toDouble(),
+    currentUserId: capMap(json['currentUser'])['id'] == null
+        ? null
+        : capCount(capMap(json['currentUser'])['id']),
+    inProcessAt: DateTime.tryParse(capText(json['startDate'])),
   );
 
   static const _dateKeys = [

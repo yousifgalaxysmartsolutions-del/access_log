@@ -8,6 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:access_log_plus/core/network/cap/api_request_context.dart';
 import 'package:access_log_plus/core/network/cap/cap_device_app_info.dart';
 import 'package:access_log_plus/core/storage/secure_storage_service.dart';
+import 'package:access_log_plus/core/session/session_manager.dart';
+import 'package:access_log_plus/features/periodic_photo/domain/today_in_process_incident_service.dart';
+import 'support/periodic_photo_fakes.dart' show MemoryTokenStorage;
+import 'today_in_process_incident_test.dart'
+    show MemoryIncidentStore, ActionDetails;
+import 'package:access_log_plus/features/incidents/data/models/incident_details_models.dart';
+import 'package:access_log_plus/core/network/result.dart';
 import 'package:access_log_plus/features/incidents/data/api/incident_api_service.dart';
 import 'package:access_log_plus/features/incidents/data/incident_lookup_store.dart';
 import 'package:access_log_plus/features/incidents/data/repositories/incident_action_configuration_repository_impl.dart';
@@ -185,6 +192,86 @@ void main() {
     });
     return cubit;
   }
+
+  test(
+    'successful Hold invalidates photo eligibility; failed Hold leaves it untouched',
+    () async {
+      final now = DateTime(2026, 10, 20, 9);
+      final session = SessionManager(MemoryTokenStorage())..startDemo();
+      session.user = const SessionUser(id: '4086');
+      final cache = TodayInProcessIncidentService(
+        session: session,
+        store: MemoryIncidentStore(),
+        now: () => now,
+      );
+      addTearDown(() async {
+        await cache.dispose();
+        await session.dispose();
+      });
+      await cache.confirmStatus(26, status: 4, generation: session.generation);
+      final trackedExecutor = IncidentExecutionRepositoryImpl(
+        executor.api,
+        executor.context,
+        executor.forms,
+        inProcessIncidents: cache,
+      );
+      final execution = IncidentExecutionContext(
+        incidentId: 26,
+        selectedAction: action(4, IncidentAction.hold),
+      );
+      transport.failMutation = true;
+      await trackedExecutor.execute(execution);
+      expect(cache.contains(26), true);
+      transport.failMutation = false;
+      await trackedExecutor.execute(execution);
+      expect(cache.hasEligibleIncident, false);
+    },
+  );
+
+  test(
+    'successful Un Hold registers only verified current-user In Process work',
+    () async {
+      final session = SessionManager(MemoryTokenStorage())..startDemo();
+      session.user = const SessionUser(id: '4086');
+      final cache = TodayInProcessIncidentService(
+        session: session,
+        store: MemoryIncidentStore(),
+      );
+      final details = ActionDetails(
+        Success(
+          IncidentDetailsData.fromJson({
+            'id': 26,
+            'incidentNo': 'INC-26',
+            'status': {'id': 4},
+            'assignedEngineer': {'id': 4086},
+          }),
+        ),
+      );
+      addTearDown(() async {
+        await cache.dispose();
+        await session.dispose();
+      });
+      final repository = IncidentExecutionRepositoryImpl(
+        executor.api,
+        executor.context,
+        executor.forms,
+        inProcessIncidents: cache,
+        incidentDetails: details,
+      );
+      final input = IncidentExecutionContext(
+        incidentId: 26,
+        selectedAction: action(7, IncidentAction.unHold),
+      );
+      transport.failMutation = true;
+      expect(await repository.execute(input), isA<FailureResult<void>>());
+      expect(details.calls, 0);
+      expect(cache.hasEligibleIncident, false);
+      transport.failMutation = false;
+      expect(await repository.execute(input), isA<Success<void>>());
+      expect(cache.latest!.id, 26);
+      expect(details.calls, 1);
+    },
+  );
 
   void fullConfiguration() {
     transport.configuration = {

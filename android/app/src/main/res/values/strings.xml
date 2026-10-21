@@ -2,4 +2,8 @@
 <resources>
     <string name="gps_tracking_notification_title">Access Log+ location tracking</string>
     <string name="gps_tracking_notification_text">Recording your location in the background</string>
+    <string name="gps_battery_title">Background tracking / التتبّع في الخلفية</string>
+    <string name="gps_battery_message">Allow unrestricted battery use to improve location tracking while the screen is off. This may increase battery usage. Android will ask for your approval. Tracking stops when you remove the app from recent apps. If you decline, tracking continues with system limits. You can change this later in Settings → Apps → Access Log+ → Battery.\n\nاسمح باستخدام البطارية دون قيود لتحسين التتبّع والشاشة مغلقة. قد يزيد استهلاك البطارية. سيطلب Android موافقتك. يتوقف التتبّع عند سحب التطبيق من التطبيقات الأخيرة. الرفض لا يمنع استخدام التطبيق، وتظل قيود النظام سارية. يمكنك التغيير لاحقًا من الإعدادات ← التطبيقات ← Access Log+ ← البطارية.</string>
+    <string name="gps_battery_allow">Continue / متابعة</string>
+    <string name="gps_battery_later">Not now / ليس الآن</string>
 </resources>

@@ -26,4 +26,14 @@ class MainActivity : FlutterActivity() {
         locationBridge = null
         super.onDestroy()
     }
+
+    override fun onResume() {
+        super.onResume()
+        locationBridge?.onResume()
+    }
+
+    override fun onPause() {
+        locationBridge?.onPause()
+        super.onPause()
+    }
 }

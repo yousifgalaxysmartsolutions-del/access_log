@@ -104,7 +104,9 @@ class IncidentRepositoryImpl implements IncidentRepository {
                 .where((item) => seen.add(item.incidentId))
                 .toList();
             items.addAll(IncidentMapper.toIncidents(fresh, requestedOn: day));
-            if (items.length >= data.totalCount) return items;
+            if (items.length >= data.totalCount) {
+              return items;
+            }
             if (fresh.isEmpty || (data.page > 0 && data.page != page)) {
               throw const FormatException(
                 'Incident pagination did not advance',

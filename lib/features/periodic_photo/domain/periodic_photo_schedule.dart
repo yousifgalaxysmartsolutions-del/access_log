@@ -9,6 +9,7 @@ class PeriodicPhotoSchedule {
     this.lastPeriodicPhotoAt,
     this.nextPhotoDueAt,
     this.intervalMinutes,
+    this.workScope,
   });
 
   /// When the last requirement was validly completed, or `null` yet.
@@ -21,6 +22,7 @@ class PeriodicPhotoSchedule {
   /// The interval that produced [nextPhotoDueAt], so a later configuration
   /// change can be detected and the schedule recomputed cleanly.
   final int? intervalMinutes;
+  final String? workScope;
 
   bool get hasDeadline => nextPhotoDueAt != null;
 
@@ -34,20 +36,24 @@ class PeriodicPhotoSchedule {
     DateTime? lastPeriodicPhotoAt,
     DateTime? nextPhotoDueAt,
     int? intervalMinutes,
+    String? workScope,
   }) => PeriodicPhotoSchedule(
     lastPeriodicPhotoAt: lastPeriodicPhotoAt ?? this.lastPeriodicPhotoAt,
     nextPhotoDueAt: nextPhotoDueAt ?? this.nextPhotoDueAt,
     intervalMinutes: intervalMinutes ?? this.intervalMinutes,
+    workScope: workScope ?? this.workScope,
   );
 
   Map<String, Object?> toJson() => {
     'lastPeriodicPhotoAt': lastPeriodicPhotoAt?.toIso8601String(),
     'nextPhotoDueAt': nextPhotoDueAt?.toIso8601String(),
     'intervalMinutes': intervalMinutes,
+    if (workScope != null) 'workScope': workScope,
   };
 
   factory PeriodicPhotoSchedule.fromJson(Map<String, dynamic> json) =>
       PeriodicPhotoSchedule(
+        workScope: json['workScope'] as String?,
         lastPeriodicPhotoAt: _parseDate(json['lastPeriodicPhotoAt']),
         nextPhotoDueAt: _parseDate(json['nextPhotoDueAt']),
         intervalMinutes: json['intervalMinutes'] is int

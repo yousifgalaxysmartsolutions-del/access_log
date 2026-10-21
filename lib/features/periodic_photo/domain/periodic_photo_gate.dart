@@ -8,6 +8,7 @@ import '../../forms/data/models/cap_form_models.dart';
 import '../data/periodic_photo_retain_store.dart';
 import 'periodic_photo_coordinator.dart';
 import 'repositories/periodic_photo_repository.dart';
+import 'today_in_process_incident_service.dart';
 
 /// The blocking state of the app-level periodic photo requirement.
 ///
@@ -80,6 +81,7 @@ class PeriodicPhotoGate {
     required SessionManager session,
     required Future<CapFormEvidence?> Function() capturePhoto,
     DateTime Function()? now,
+    TodayInProcessIncidentService? incidents,
   }) : _coordinator = coordinator,
        _repository = repository,
        _retainStore = retainStore,
@@ -87,8 +89,12 @@ class PeriodicPhotoGate {
        _session = session,
        _capturePhoto = capturePhoto,
        _now = now ?? DateTime.now {
+    _incidents = incidents;
+    _incidentSubscription = incidents?.changes.listen((_) => _derive());
     _coordinatorSubscription = _coordinator.changes.listen((_) => _derive());
   }
+  TodayInProcessIncidentService? _incidents;
+  StreamSubscription<void>? _incidentSubscription;
 
   final PeriodicPhotoCoordinator _coordinator;
   final PeriodicPhotoRepository _repository;
@@ -99,8 +105,7 @@ class PeriodicPhotoGate {
   final DateTime Function() _now;
 
   final _changes = StreamController<PeriodicPhotoGateState>.broadcast();
-  late final StreamSubscription<PeriodicPhotoSnapshot>
-  _coordinatorSubscription;
+  late final StreamSubscription<PeriodicPhotoSnapshot> _coordinatorSubscription;
 
   PeriodicPhotoGateState _state = PeriodicPhotoGateState.checking;
   PeriodicPhotoGateState get state => _state;
@@ -122,6 +127,7 @@ class PeriodicPhotoGate {
   bool _busy = false;
   bool _restored = false;
   bool _disposed = false;
+  Future<void> _pendingRetentionClear = Future.value();
 
   Future<void>? _reconciling;
   bool _pendingReconcile = false;
@@ -153,6 +159,7 @@ class PeriodicPhotoGate {
   }
 
   Future<void> _runReconcile() async {
+    await _incidents?.restore();
     await _restoreOnce();
     await _coordinator.reconcile();
     _derive();
@@ -187,15 +194,23 @@ class PeriodicPhotoGate {
   /// dismissed. Exactly one attempt runs at a time.
   Future<void> captureAndSubmit() async {
     if (!_begin()) return;
+    final generation = _session.generation;
     try {
       final evidence = await _capture();
       if (evidence == null) return;
+      if (_session.generation != generation || !_session.isAuthenticated) {
+        return;
+      }
+      final eligibleId = _incidents?.latest?.id;
+      if (_incidents != null && eligibleId == null) {
+        _derive();
+        return;
+      }
       await _submit(
         RetainedPeriodicPhoto(
           evidence: evidence,
-          // Read at capture time so the photo belongs to the context the user
-          // was actually in (0 everywhere outside an incident).
-          incidentId: _activeIncident.uploadIncidentId,
+          // Production uses the latest eligible incident, never the open route.
+          incidentId: eligibleId ?? _activeIncident.uploadIncidentId,
           capturedAt: _now(),
           userId: _session.userId,
         ),
@@ -232,6 +247,10 @@ class PeriodicPhotoGate {
 
   bool _begin() {
     if (_disposed || _busy) return false;
+    if (_incidents != null && !_incidents!.hasEligibleIncident) {
+      _derive();
+      return false;
+    }
     if (_state != PeriodicPhotoGateState.due &&
         _state != PeriodicPhotoGateState.submitFailed) {
       return false;
@@ -260,8 +279,24 @@ class PeriodicPhotoGate {
     await _submit(photo);
   }
 
+  bool _photoBelongsToWork(RetainedPeriodicPhoto photo) {
+    if (photo.userId != _session.userId) return false;
+    if (_incidents == null) return true;
+    final captured = photo.capturedAt.toLocal();
+    final today = _now().toLocal();
+    return _incidents!.contains(photo.incidentId) &&
+        captured.year == today.year &&
+        captured.month == today.month &&
+        captured.day == today.day;
+  }
+
   Future<void> _submit(RetainedPeriodicPhoto photo) async {
     if (_disposed || _submitting) return;
+    if (!_session.isAuthenticated || !_photoBelongsToWork(photo)) {
+      await _discardRetainedPhoto();
+      return;
+    }
+    final generation = _session.generation;
     _retainedPhoto = photo;
     _submitting = true;
     _lastError = null;
@@ -270,10 +305,17 @@ class PeriodicPhotoGate {
     // Persist before any network call: the captured photo must survive a
     // crash or a failed upload (save first, then sync).
     try {
+      await _pendingRetentionClear;
       await _retainStore.write(photo);
     } on Exception {
       // Best effort: in-memory retention still protects this session, and the
       // upload below does not depend on the local write.
+    }
+
+    if (generation != _session.generation || !_photoBelongsToWork(photo)) {
+      _submitting = false;
+      _derive();
+      return;
     }
 
     Result<bool> result;
@@ -288,6 +330,12 @@ class PeriodicPhotoGate {
       result = FailureResult(UnknownFailure(error.toString()));
     }
 
+    if (generation != _session.generation) {
+      _submitting = false;
+      _retainedPhoto = null;
+      _derive();
+      return;
+    }
     switch (result) {
       case Success():
         _lastError = null;
@@ -324,10 +372,15 @@ class PeriodicPhotoGate {
   }
 
   PeriodicPhotoGateState _computeState() {
+    if (!_session.isAuthenticated ||
+        (_incidents != null && !_incidents!.hasEligibleIncident)) {
+      return PeriodicPhotoGateState.disabledByConfiguration;
+    }
     if (_submitting) return PeriodicPhotoGateState.submitting;
+    final retained = _retainedPhoto;
+    final hasRetainedPhoto = retained != null && _photoBelongsToWork(retained);
     return switch (_coordinator.snapshot.state) {
-      PeriodicPhotoScheduleState.unknown =>
-        PeriodicPhotoGateState.checking,
+      PeriodicPhotoScheduleState.unknown => PeriodicPhotoGateState.checking,
       // A disabled configuration never blocks, regardless of anything else.
       PeriodicPhotoScheduleState.disabled =>
         PeriodicPhotoGateState.disabledByConfiguration,
@@ -335,17 +388,29 @@ class PeriodicPhotoGate {
       // never confirmed by CAP: keep blocking with a retry instead of asking
       // for a second photo.
       PeriodicPhotoScheduleState.waiting =>
-        _retainedPhoto == null
+        !hasRetainedPhoto
             ? PeriodicPhotoGateState.waiting
             : PeriodicPhotoGateState.submitFailed,
-      PeriodicPhotoScheduleState.due => _retainedPhoto == null
-          ? PeriodicPhotoGateState.due
-          : PeriodicPhotoGateState.submitFailed,
+      PeriodicPhotoScheduleState.due =>
+        !hasRetainedPhoto
+            ? PeriodicPhotoGateState.due
+            : PeriodicPhotoGateState.submitFailed,
     };
   }
 
   void _derive() {
     if (_disposed || _changes.isClosed) return;
+    final retained = _retainedPhoto;
+    if (_incidents != null &&
+        !_submitting &&
+        retained != null &&
+        !_photoBelongsToWork(retained)) {
+      _retainedPhoto = null;
+      _lastError = null;
+      _pendingRetentionClear = _pendingRetentionClear.then(
+        (_) => _clearRetainedPhoto(),
+      );
+    }
     final next = _computeState();
     final error = _lastError;
     final changed = next != _state || error != _emittedError;
@@ -358,6 +423,7 @@ class PeriodicPhotoGate {
     if (_disposed) return;
     _disposed = true;
     await _coordinatorSubscription.cancel();
+    await _incidentSubscription?.cancel();
     // Deliberately not closed: nothing waits for the done event, and closing
     // after listeners have cancelled deadlocks widget-test fake async.
   }

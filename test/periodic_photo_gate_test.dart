@@ -79,23 +79,24 @@ void main() {
     await session.dispose();
   });
 
-  test('enablePhotoCapture = false → no requirement, camera never opens',
-      () async {
-    configuration.result = Success(photoConfiguration());
+  test(
+    'enablePhotoCapture = false → no requirement, camera never opens',
+    () async {
+      configuration.result = Success(photoConfiguration());
 
-    await gate.reconcile();
+      await gate.reconcile();
 
-    expect(gate.state, PeriodicPhotoGateState.disabledByConfiguration);
-    expect(gate.state.allowsUsage, isTrue);
+      expect(gate.state, PeriodicPhotoGateState.disabledByConfiguration);
+      expect(gate.state.allowsUsage, isTrue);
 
-    await gate.captureAndSubmit();
+      await gate.captureAndSubmit();
 
-    expect(captureCalls, 0);
-    expect(repository.submissions, 0);
-  });
+      expect(captureCalls, 0);
+      expect(repository.submissions, 0);
+    },
+  );
 
-  test('due photo → capture → CAP accepts → next deadline scheduled',
-      () async {
+  test('due photo → capture → CAP accepts → next deadline scheduled', () async {
     await becomeDue();
     expect(gate.state, PeriodicPhotoGateState.due);
     expect(gate.state.allowsUsage, isFalse);
@@ -115,105 +116,121 @@ void main() {
     expect(retainStore.value, isNull, reason: 'nothing left to retry');
   });
 
-  test('cancelling the camera keeps the requirement — it cannot be dismissed',
-      () async {
-    await becomeDue();
+  test(
+    'cancelling the camera keeps the requirement — it cannot be dismissed',
+    () async {
+      await becomeDue();
 
-    await gate.captureAndSubmit(); // user cancelled: nothing queued
+      await gate.captureAndSubmit(); // user cancelled: nothing queued
 
-    expect(captureCalls, 1);
-    expect(gate.state, PeriodicPhotoGateState.due);
-    expect(repository.submissions, 0);
+      expect(captureCalls, 1);
+      expect(gate.state, PeriodicPhotoGateState.due);
+      expect(repository.submissions, 0);
 
-    // Reconciles can never talk the requirement away either.
-    await gate.reconcile();
-    await gate.reconcile();
-    expect(gate.state, PeriodicPhotoGateState.due);
-  });
+      // Reconciles can never talk the requirement away either.
+      await gate.reconcile();
+      await gate.reconcile();
+      expect(gate.state, PeriodicPhotoGateState.due);
+    },
+  );
 
-  test('capture validation failure keeps the requirement and explains why',
-      () async {
-    await becomeDue();
-    captureQueue.add(const FormatException('Evidence exceeds 16 MB'));
+  test(
+    'capture validation failure keeps the requirement and explains why',
+    () async {
+      await becomeDue();
+      captureQueue.add(const FormatException('Evidence exceeds 16 MB'));
 
-    await gate.captureAndSubmit();
+      await gate.captureAndSubmit();
 
-    expect(gate.state, PeriodicPhotoGateState.due);
-    expect(gate.lastError, contains('16 MB'));
-    expect(repository.submissions, 0);
-  });
+      expect(gate.state, PeriodicPhotoGateState.due);
+      expect(gate.lastError, contains('16 MB'));
+      expect(repository.submissions, 0);
+    },
+  );
 
-  test('upload failure retains the photo; retry never forces a second capture',
-      () async {
-    repository.result = networkFailure();
-    await becomeDue();
-    captureQueue.add(jpegEvidence());
+  test(
+    'upload failure retains the photo; retry never forces a second capture',
+    () async {
+      repository.result = networkFailure();
+      await becomeDue();
+      captureQueue.add(jpegEvidence());
 
-    await gate.captureAndSubmit();
+      await gate.captureAndSubmit();
 
-    expect(gate.state, PeriodicPhotoGateState.submitFailed);
-    expect(gate.state.allowsUsage, isFalse);
-    expect(gate.lastError, isNotNull);
-    expect(captureCalls, 1);
-    expect(retainStore.value, isNotNull, reason: 'captured before the network');
-    expect(
-      coordinator.snapshot.state,
-      PeriodicPhotoScheduleState.due,
-      reason: 'a failed upload must not advance the deadline',
-    );
-    expect(
-      coordinator.snapshot.nextPhotoDueAt,
-      DateTime(2026, 1, 1, 10, 1, 0),
-    );
+      expect(gate.state, PeriodicPhotoGateState.submitFailed);
+      expect(gate.state.allowsUsage, isFalse);
+      expect(gate.lastError, isNotNull);
+      expect(captureCalls, 1);
+      expect(
+        retainStore.value,
+        isNotNull,
+        reason: 'captured before the network',
+      );
+      expect(
+        coordinator.snapshot.state,
+        PeriodicPhotoScheduleState.due,
+        reason: 'a failed upload must not advance the deadline',
+      );
+      expect(
+        coordinator.snapshot.nextPhotoDueAt,
+        DateTime(2026, 1, 1, 10, 1, 0),
+      );
 
-    repository.result = const Success(true);
-    await gate.retryUpload();
+      repository.result = const Success(true);
+      await gate.retryUpload();
 
-    expect(gate.state, PeriodicPhotoGateState.waiting);
-    expect(captureCalls, 1, reason: 'the SAME captured photo is retried');
-    expect(repository.submissions, 2);
-    expect(repository.submitted.last.name, 'photo.jpg');
-    expect(retainStore.value, isNull);
-    expect(gate.lastError, isNull);
-    expect(
-      coordinator.snapshot.nextPhotoDueAt,
-      DateTime(2026, 1, 1, 10, 2, 0),
-      reason: 'the next window starts only after CAP confirms',
-    );
-  });
+      expect(gate.state, PeriodicPhotoGateState.waiting);
+      expect(captureCalls, 1, reason: 'the SAME captured photo is retried');
+      expect(repository.submissions, 2);
+      expect(repository.submitted.last.name, 'photo.jpg');
+      expect(retainStore.value, isNull);
+      expect(gate.lastError, isNull);
+      expect(
+        coordinator.snapshot.nextPhotoDueAt,
+        DateTime(2026, 1, 1, 10, 2, 0),
+        reason: 'the next window starts only after CAP confirms',
+      );
+    },
+  );
 
-  test('retained photo survives a restart and auto-retries for the same user',
-      () async {
-    repository.result = networkFailure();
-    await becomeDue();
-    captureQueue.add(jpegEvidence());
-    await gate.captureAndSubmit();
-    expect(gate.state, PeriodicPhotoGateState.submitFailed);
-    await gate.dispose();
-    await coordinator.dispose();
+  test(
+    'retained photo survives a restart and auto-retries for the same user',
+    () async {
+      repository.result = networkFailure();
+      await becomeDue();
+      captureQueue.add(jpegEvidence());
+      await gate.captureAndSubmit();
+      expect(gate.state, PeriodicPhotoGateState.submitFailed);
+      await gate.dispose();
+      await coordinator.dispose();
 
-    // "Relaunch": fresh coordinator + gate over the same local state.
-    final relaunchedCoordinator = PeriodicPhotoCoordinator(
-      configuration: configuration,
-      store: scheduleStore,
-      now: () => now,
-    );
-    addTearDown(relaunchedCoordinator.dispose);
-    final relaunchedGate = buildGate(
-      forCoordinator: relaunchedCoordinator,
-      forSession: session,
-    );
-    addTearDown(relaunchedGate.dispose);
-    repository.result = const Success(true);
-    final capturesBefore = captureCalls;
+      // "Relaunch": fresh coordinator + gate over the same local state.
+      final relaunchedCoordinator = PeriodicPhotoCoordinator(
+        configuration: configuration,
+        store: scheduleStore,
+        now: () => now,
+      );
+      addTearDown(relaunchedCoordinator.dispose);
+      final relaunchedGate = buildGate(
+        forCoordinator: relaunchedCoordinator,
+        forSession: session,
+      );
+      addTearDown(relaunchedGate.dispose);
+      repository.result = const Success(true);
+      final capturesBefore = captureCalls;
 
-    await relaunchedGate.reconcile();
+      await relaunchedGate.reconcile();
 
-    expect(relaunchedGate.state, PeriodicPhotoGateState.waiting);
-    expect(captureCalls, capturesBefore, reason: 'no second photo was needed');
-    expect(repository.submissions, 2);
-    expect(retainStore.value, isNull);
-  });
+      expect(relaunchedGate.state, PeriodicPhotoGateState.waiting);
+      expect(
+        captureCalls,
+        capturesBefore,
+        reason: 'no second photo was needed',
+      );
+      expect(repository.submissions, 2);
+      expect(retainStore.value, isNull);
+    },
+  );
 
   test('retained photo is never restored for a different user', () async {
     retainStore.value = RetainedPeriodicPhoto(
@@ -233,33 +250,37 @@ void main() {
     expect(repository.submissions, 0);
   });
 
-  test('signed-out session never restores or uploads a retained photo',
-      () async {
-    final signedOut = SessionManager(MemoryTokenStorage());
-    addTearDown(signedOut.dispose);
-    retainStore.value = RetainedPeriodicPhoto(
-      evidence: jpegEvidence(),
-      incidentId: 0,
-      capturedAt: now,
-      userId: 0,
-    );
-    final signedOutGate = buildGate(
-      forCoordinator: coordinator,
-      forSession: signedOut,
-    );
-    addTearDown(signedOutGate.dispose);
+  test(
+    'signed-out session never restores or uploads a retained photo',
+    () async {
+      final signedOut = SessionManager(MemoryTokenStorage());
+      addTearDown(signedOut.dispose);
+      retainStore.value = RetainedPeriodicPhoto(
+        evidence: jpegEvidence(),
+        incidentId: 0,
+        capturedAt: now,
+        userId: 0,
+      );
+      final signedOutGate = buildGate(
+        forCoordinator: coordinator,
+        forSession: signedOut,
+      );
+      addTearDown(signedOutGate.dispose);
 
-    await signedOutGate.reconcile(); // schedule the window at 10:01
-    now = DateTime(2026, 1, 1, 10, 1, 0);
-    await signedOutGate.reconcile(); // deadline reached
+      await signedOutGate.reconcile(); // schedule the window at 10:01
+      now = DateTime(2026, 1, 1, 10, 1, 0);
+      await signedOutGate.reconcile(); // deadline reached
 
-    expect(signedOutGate.state, PeriodicPhotoGateState.due);
-    expect(repository.submissions, 0);
-    expect(retainStore.value, isNull);
-  });
+      expect(
+        signedOutGate.state,
+        PeriodicPhotoGateState.disabledByConfiguration,
+      );
+      expect(repository.submissions, 0);
+      expect(retainStore.value, isNull);
+    },
+  );
 
-  test('IncidentId comes from the live incident context, 0 elsewhere',
-      () async {
+  test('IncidentId comes from the live incident context, 0 elsewhere', () async {
     await becomeDue();
 
     incident.enter(26);
@@ -283,20 +304,21 @@ void main() {
     );
   });
 
-  test('configuration disabled while a photo is outstanding → released',
-      () async {
-    await becomeDue();
-    expect(gate.state, PeriodicPhotoGateState.due);
+  test(
+    'configuration disabled while a photo is outstanding → released',
+    () async {
+      await becomeDue();
+      expect(gate.state, PeriodicPhotoGateState.due);
 
-    configuration.result = Success(photoConfiguration());
-    await gate.reconcile();
+      configuration.result = Success(photoConfiguration());
+      await gate.reconcile();
 
-    expect(gate.state, PeriodicPhotoGateState.disabledByConfiguration);
-    expect(gate.state.allowsUsage, isTrue);
-  });
+      expect(gate.state, PeriodicPhotoGateState.disabledByConfiguration);
+      expect(gate.state.allowsUsage, isTrue);
+    },
+  );
 
-  test('retake discards the retained photo and captures a fresh one',
-      () async {
+  test('retake discards the retained photo and captures a fresh one', () async {
     repository.result = networkFailure();
     await becomeDue();
     captureQueue.add(jpegEvidence(name: 'first.jpg'));
@@ -313,19 +335,21 @@ void main() {
     expect(gate.state, PeriodicPhotoGateState.waiting);
   });
 
-  test('duplicate reconcile while due → exactly one gate state emission',
-      () async {
-    await gate.reconcile();
-    final states = <PeriodicPhotoGateState>[];
-    final subscription = gate.changes.listen(states.add);
+  test(
+    'duplicate reconcile while due → exactly one gate state emission',
+    () async {
+      await gate.reconcile();
+      final states = <PeriodicPhotoGateState>[];
+      final subscription = gate.changes.listen(states.add);
 
-    now = DateTime(2026, 1, 1, 10, 1, 0);
-    await gate.reconcile();
-    await gate.reconcile();
-    await gate.reconcile();
+      now = DateTime(2026, 1, 1, 10, 1, 0);
+      await gate.reconcile();
+      await gate.reconcile();
+      await gate.reconcile();
 
-    expect(states, [PeriodicPhotoGateState.due]);
-    expect(gate.state, PeriodicPhotoGateState.due);
-    await subscription.cancel();
-  });
+      expect(states, [PeriodicPhotoGateState.due]);
+      expect(gate.state, PeriodicPhotoGateState.due);
+      await subscription.cancel();
+    },
+  );
 }

@@ -11,6 +11,8 @@ import '../../features/incidents/domain/usecases/incident_execution_use_case.dar
 import '../../features/incidents/domain/repositories/incident_action_configuration_repository.dart';
 import '../../features/incidents/domain/usecases/get_incident_action_configuration_use_case.dart';
 import 'package:dio/dio.dart';
+import '../../features/periodic_photo/data/today_in_process_store.dart';
+import '../../features/periodic_photo/domain/today_in_process_incident_service.dart';
 import '../../features/reports/data/repositories/engineers_activity_report_repository_impl.dart';
 import '../../features/reports/domain/repositories/engineers_activity_report_repository.dart';
 import '../../features/reports/domain/usecases/get_engineers_activity_report_use_case.dart';
@@ -233,6 +235,12 @@ void registerRequestDependencies() {
     () => RequestCreationRepositoryImpl(
       services<RequestApiService>(),
       services<ApiRequestContextProvider>(),
+      inProcessIncidents: services.isRegistered<TodayInProcessIncidentService>()
+          ? services<TodayInProcessIncidentService>()
+          : null,
+      incidentDetails: services.isRegistered<IncidentDetailsRepository>()
+          ? services<IncidentDetailsRepository>()
+          : null,
     ),
   );
   services.registerLazySingleton<IncidentRequestUseCase>(
@@ -505,6 +513,13 @@ void registerIncidentActionConfigurationDependencies() {
         services<IncidentApiService>(),
         services<ApiRequestContextProvider>(),
         services<CapFormRepository>(),
+        incidentDetails: services.isRegistered<IncidentDetailsRepository>()
+            ? services<IncidentDetailsRepository>()
+            : null,
+        inProcessIncidents:
+            services.isRegistered<TodayInProcessIncidentService>()
+            ? services<TodayInProcessIncidentService>()
+            : null,
       ),
     );
   }
@@ -606,6 +621,14 @@ void registerGpsTrackingDependencies() {
 /// `AppRequirementGuard`, never by a screen.
 void registerPeriodicPhotoDependencies() {
   if (services.isRegistered<PeriodicPhotoGate>()) return;
+  services.registerLazySingleton<TodayInProcessStore>(TodayInProcessStore.new);
+  services.registerLazySingleton<TodayInProcessIncidentService>(
+    () => TodayInProcessIncidentService(
+      session: services<SessionManager>(),
+      store: services<TodayInProcessStore>(),
+    ),
+    dispose: (service) => service.dispose(),
+  );
   services.registerLazySingleton<PeriodicPhotoScheduleStore>(
     PeriodicPhotoScheduleStore.new,
   );
@@ -625,6 +648,7 @@ void registerPeriodicPhotoDependencies() {
     () => PeriodicPhotoCoordinator(
       configuration: services<SystemGpsConfigurationRepository>(),
       store: services<PeriodicPhotoScheduleStore>(),
+      incidents: services<TodayInProcessIncidentService>(),
     ),
     dispose: (coordinator) => coordinator.dispose(),
   );
@@ -636,6 +660,7 @@ void registerPeriodicPhotoDependencies() {
       repository: services<PeriodicPhotoRepository>(),
       retainStore: services<PeriodicPhotoRetainStore>(),
       activeIncident: services<ActiveIncidentContext>(),
+      incidents: services<TodayInProcessIncidentService>(),
       session: services<SessionManager>(),
       // Camera reuse: the existing foreground, user-initiated capture flow
       // (image_picker → device camera, 16 MB guard). Never a gallery image.

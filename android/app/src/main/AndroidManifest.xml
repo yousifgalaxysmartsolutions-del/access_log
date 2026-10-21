@@ -10,6 +10,10 @@
     <!-- Foreground location service (Android 9+ / typed on Android 14+). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- User-approved Doze exemption for continuous field-work tracking. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Only held briefly while a captured location is being persisted. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Visible tracking notification on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -42,10 +46,12 @@
         </activity>
         <!-- Continuous background location capture. The service persists every
              accepted fix directly to the local GPS file, independent of the
-             Flutter engine. -->
+             Flutter engine. Removing the app from Recents stops this service;
+             simply going to the background keeps it running. -->
         <service
             android:name=".location.LocationForegroundService"
             android:exported="false"
+            android:stopWithTask="true"
             android:foregroundServiceType="location" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

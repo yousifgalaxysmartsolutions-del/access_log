@@ -9,10 +9,20 @@ import '../../../forms/domain/repositories/cap_form_repository.dart';
 import '../../domain/actions/incident_available_action.dart';
 import '../../domain/actions/incident_execution_context.dart';
 import '../../domain/repositories/incident_execution_repository.dart';
+import '../../domain/repositories/incident_details_repository.dart';
 import '../api/incident_api_service.dart';
+import '../../../periodic_photo/domain/today_in_process_incident_service.dart';
 
 class IncidentExecutionRepositoryImpl implements IncidentExecutionRepository {
-  IncidentExecutionRepositoryImpl(this.api, this.context, this.forms);
+  IncidentExecutionRepositoryImpl(
+    this.api,
+    this.context,
+    this.forms, {
+    TodayInProcessIncidentService? inProcessIncidents,
+    this.incidentDetails,
+  }) : _inProcessIncidents = inProcessIncidents;
+  final TodayInProcessIncidentService? _inProcessIncidents;
+  final IncidentDetailsRepository? incidentDetails;
   final IncidentApiService api;
   final ApiRequestContextProvider context;
   final CapFormRepository forms;
@@ -62,18 +72,30 @@ class IncidentExecutionRepositoryImpl implements IncidentExecutionRepository {
       if (!validStatus) {
         return const FailureResult(ValidationFailure());
       }
-      return forms.submit(execution.toStatusChange());
+      final stamp = _inProcessIncidents?.beginObservation();
+      final result = await forms.submit(execution.toStatusChange());
+      if (result is Success<void> && stamp != null) {
+        await _inProcessIncidents!.recordSuccessfulAction(
+          incidentId: execution.incidentId,
+          explicitStatus: execution.newStatusId,
+          stamp: stamp,
+          allowEntry: execution.selectedAction.type == IncidentAction.unHold,
+          details: incidentDetails,
+        );
+      }
+      return result;
     }
     if ((execution.assignedUserId ?? 0) <= 0) {
       return const FailureResult(ValidationFailure());
     }
+    final stamp = _inProcessIncidents?.beginObservation();
     final envelope = await context.wrap(
       execution,
       authenticationMessage: authMessage,
     );
-    return switch (envelope) {
-      FailureResult(:final failure) => FailureResult(failure),
-      Success(:final data) => apiGuard<void>(() async {
+    final Result<void> result = switch (envelope) {
+      FailureResult(:final failure) => FailureResult<void>(failure),
+      Success(:final data) => await apiGuard<void>(() async {
         final result = GeneralResponse.parse<Object?>(
           await api.assignIncident(data),
           (raw) => raw,
@@ -91,5 +113,13 @@ class IncidentExecutionRepositoryImpl implements IncidentExecutionRepository {
         }
       }),
     };
+    if (result is Success<void> && stamp != null) {
+      await _inProcessIncidents!.recordSuccessfulAction(
+        incidentId: execution.incidentId,
+        stamp: stamp,
+        details: incidentDetails,
+      );
+    }
+    return result;
   }
 }

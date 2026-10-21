@@ -1,7 +1,8 @@
 # Periodic mandatory photo capture
 
-Config-driven, app-level requirement: when `enablePhotoCapture` is on, the user
-must take a photo every `periodicPhotoCaptureIntervalMinutes` before CAP usage
+Config-driven, app-level requirement: when `enablePhotoCapture` is on and the
+current user has eligible In Process work today, the user must take a photo
+every `periodicPhotoCaptureIntervalMinutes` before CAP usage
 is allowed. Both values come from `CAP/CapConfiguration/GetSystemConfiguration`
 — no interval is ever hardcoded in the app.
 
@@ -79,3 +80,32 @@ never a poll loop.
   (`IncidentId`/`ImageData`/`ImageBytes`, extension from bytes, envelope)
 * `test/app_requirement_guard_test.dart` — GPS-first priority, one overlay
 * `test/active_incident_context_test.dart` — stack semantics, no stale ids
+* `test/today_in_process_incident_test.dart` — eligibility, persistence, ordering,
+  safe reconciliation, account/day isolation and work-scoped photo timing
+
+## Today / In Process eligibility cache
+
+Production photo eligibility and upload `IncidentId` now come from
+`TodayInProcessIncidentService`, not the incident route currently open.
+
+* Only a **successful action initiated by this user** updates the work cache.
+  Normal GetIncidentList and GetIncidentDetails reads never enroll/remove work.
+* Explicit incident status changes add In Process (4) or remove other statuses.
+  After Entry/Un Hold succeeds, the specific incident's details verify the real
+  incident status and signed-in assignee. Request NewStatusId is never treated
+  as an incident status. Failed mutation/verification never invents active work.
+* Renewal alone cannot enroll work started elsewhere. Repeating actions on
+  already-active work preserves its order; leaving and re-entering ranks anew.
+* Cache file: `<applicationSupportDirectory>/cap_photo/in_process_today.json`.
+  User/day scope prevents yesterday's/another user's work from enabling photos.
+  Version 2 ignores old list-populated cache records.
+* Timers stop when no eligible work exists. Reactivation starts a new interval;
+  same-user/day restarts with active work retain the persisted deadline.
+* Latest means the last successful local transition, not incident creation time.
+  Account changes, midnight and newer actions invalidate stale in-flight results.
+* External changes from another device or supervisor are deliberately **not**
+  synchronized under this local-only policy. A failed post-action verification
+  cannot confirm unknown server status; there is no background incident polling.
+* A single camera intent uploads against the latest eligible ID at capture time.
+  Retries keep the original captured photo/ID; removed IDs or old-day/other-user
+  photos are never automatically retried against a different incident.

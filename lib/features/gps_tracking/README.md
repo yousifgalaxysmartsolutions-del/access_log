@@ -37,6 +37,27 @@ engine: Android and iOS capture and persist points natively, so tracking
 continues while the app is backgrounded, while the screen changes, and while
 Flutter is suspended or absent. A sync failure never stops capture.
 
+## Android power management
+
+The native foreground service remains `START_STICKY` for recoverable process
+loss, but `stopWithTask=true` intentionally stops it when the user removes the
+app from Recents. Home, screen lock and normal backgrounding do not stop it.
+While tracking is running and the activity is resumed, a one-time bilingual
+disclosure offers the system battery-optimization exemption. It requires user
+approval, is optional and never blocks the GPS gate. If declined or later
+revoked, users can change the app's Battery setting manually. No OEM-specific
+hidden intents, restart alarms or boot receivers override an explicit stop.
+
+FLP uses high-accuracy native updates. A bounded partial wake lock (at most 30
+seconds per accepted point, released immediately after writing) protects the
+asynchronous local write, not the screen or the entire tracking session.
+Battery exemption is only partial: vendor restrictions, Force Stop, revoked
+permissions, disabled GPS and OS shutdown can still interrupt tracking. No
+universal uninterrupted tracking guarantee is possible. Native capture does
+not make Dart/API syncing a native background worker. The direct exemption
+permission must be reviewed against Google Play's acceptable-use policy before
+store release; do not assume exemption eligibility just from using location.
+
 ## GPS requirement gate
 
 `continuousGpsTracking == true` makes exact GPS conditions mandatory for the

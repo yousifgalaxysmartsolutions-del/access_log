@@ -4,10 +4,10 @@ import 'package:flutter/foundation.dart';
 
 import '../cap/cap_parse_diagnostics.dart';
 
-/// Debug-only structured logs. Credentials are redacted at every nesting level.
+/// Full, unredacted HTTP logs for local debugging only.
+/// Never enabled in profile/release; do not share these logs without sanitizing.
 class SafeLoggingInterceptor extends Interceptor {
   final _started = Expando<Stopwatch>();
-  static final _sensitive = CapParseDiagnostics.sensitiveKeys;
   static Object? redact(Object? value, [String key = '', int depth = 0]) =>
       redactCapPayload(value, key: key, depth: depth);
 
@@ -32,38 +32,16 @@ class SafeLoggingInterceptor extends Interceptor {
     final payload = {
       'method': request.method,
       'url': url,
-      'query': redact(request.queryParameters),
+      'query': request.queryParameters,
       'status': ?status,
       'error': ?error,
-      if (details != null) 'details': redact(details),
-      'headers': redact(headers),
-      'body': redact(body),
+      'details': ?details,
+      'headers': headers,
+      'body': body,
     };
     try {
-      var output = const JsonEncoder.withIndent('  ').convert(payload);
-      // Also remove known credentials if the server/exception echoes them in text.
-      void scrub(Object? value, [String key = '']) {
-        if (_sensitive.hasMatch(key) && value is String && value.isNotEmpty) {
-          final encoded = jsonEncode(value);
-          output = output.replaceAll(
-            encoded.substring(1, encoded.length - 1),
-            '[REDACTED]',
-          );
-        } else if (value is Map) {
-          value.forEach((k, v) => scrub(v, k.toString()));
-        } else if (value is List) {
-          for (final item in value) {
-            scrub(item, key);
-          }
-        }
-      }
-
-      scrub(request.headers);
-      scrub(request.queryParameters);
-      scrub(request.data);
-      debugPrint(
-        '[API $stage]\n${output.length > 16000 ? '${output.substring(0, 16000)}\n[truncated]' : output}',
-      );
+      final output = const JsonEncoder.withIndent('  ').convert(payload);
+      debugPrint('[API $stage]\n$output');
     } catch (_) {
       debugPrint('[API $stage] Log content omitted');
     }
