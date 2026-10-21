@@ -1,6 +1,11 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:geolocator/geolocator.dart';
+
+typedef CapUserCoordinates = ({double latitude, double longitude});
 
 /// Device and application facts that CAP expects on every request.
 class CapDeviceAppInfo {
@@ -28,12 +33,33 @@ class CapDeviceAppInfo {
 /// dependency. `AppVersion` comes from `package_info_plus` because Flutter
 /// exposes no platform API for the installed app version.
 class CapDeviceAppInfoProvider {
+  /// Optional cached GPS only. Never requests permission, obtains a new fix,
+  /// validates a geofence or changes the background tracking configuration.
+  static Future<CapUserCoordinates?> readAvailableCoordinates() async {
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
+    final permission = await Geolocator.checkPermission();
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
+      return null;
+    }
+    final position = await Geolocator.getLastKnownPosition();
+    if (position == null ||
+        !position.latitude.isFinite ||
+        !position.longitude.isFinite ||
+        position.latitude.abs() > 90 ||
+        position.longitude.abs() > 180) {
+      return null;
+    }
+    return (latitude: position.latitude, longitude: position.longitude);
+  }
+
   CapDeviceAppInfoProvider({
     String? osVersion,
     String? deviceType,
     String? appVersion,
     this.deviceToken,
     this.appVersionLoader = _defaultAppVersionLoader,
+    this.deviceIdentifierLoader,
   }) : _osVersionOverride = osVersion,
        _deviceTypeOverride = deviceType,
        _appVersionOverride = appVersion;
@@ -55,6 +81,38 @@ class CapDeviceAppInfoProvider {
 
   /// Overridable so tests can resolve `AppVersion` without platform channels.
   final Future<String> Function() appVersionLoader;
+  final Future<String> Function()? deviceIdentifierLoader;
+  Future<String>? _deviceIdentifier;
+
+  /// Stable installation identifier for public CAP envelopes. Existing signed-in
+  /// request metadata is intentionally unchanged. No hardware identifier or
+  /// sample device value is fabricated when secure storage is unavailable.
+  Future<String> resolveDeviceIdentifier() async {
+    final loading = _deviceIdentifier ??= _loadDeviceIdentifier();
+    try {
+      return await loading;
+    } catch (_) {
+      if (identical(_deviceIdentifier, loading)) _deviceIdentifier = null;
+      rethrow;
+    }
+  }
+
+  Future<String> _loadDeviceIdentifier() async {
+    if (deviceIdentifierLoader != null) return deviceIdentifierLoader!();
+    const override = String.fromEnvironment('CAP_DEVICE_ID');
+    if (override.trim().isNotEmpty) return override;
+    const storage = FlutterSecureStorage();
+    const key = 'cap_installation_identifier';
+    final saved = await storage.read(key: key);
+    if (saved != null && saved.isNotEmpty) return saved;
+    final random = Random.secure();
+    final id = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    await storage.write(key: key, value: id);
+    return id;
+  }
 
   CapDeviceAppInfo? _cached;
 

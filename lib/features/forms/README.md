@@ -44,8 +44,15 @@ AssignIncident; other supported actions reuse this feature's IncidentStatusChang
 The embedded form only collects answers; it never submits them separately.
 
 - No form: QuestionFormId is null and Answers is empty.
-- Top-level lat/long are separate strings; GPS form answers remain unchanged.
-- Top-level photo is Base64; AnswerBytes contains raw bytes (JSON integer array); attachment TextAnswer contains the file extension without a dot, resolved from encoded content then filename/MIME metadata.
+- IncidentStatusChange uses GpsLat/GpsLong strings, Photo for the actual image
+  extension, and PhotoBytes as a JSON integer array (null when no photo exists).
+  Previously captured GPS takes priority; otherwise a permission-free optional
+  cached-location lookup is bounded to two seconds and never fails the action.
+- AssignIncident retains its existing lat/long and Base64 photo contract.
+  Request creation retains its own existing photo/GPS contract unchanged.
+- Form AnswerBytes contains raw bytes (JSON integer array); attachment
+  TextAnswer contains the file extension without a dot, resolved from encoded
+  content then filename/MIME metadata. GPS form answers remain unchanged.
 - Captured form evidence uses the existing answer serializer.
 - Each selected multi-choice option is a separate answer for the same parent
   QuestionId, with its own OptionAnswer ID.

@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/di/injection.dart';
 import '../../core/config/environment.dart';
 import '../../core/error/failure.dart';
 import '../../features/authentication/presentation/bloc/login_bloc.dart';
+import '../../features/authentication/presentation/bloc/forgot_password_cubit.dart';
 
 import '../../app.dart';
 import '../../core/localization/app_strings.dart';
@@ -65,22 +67,32 @@ class AuthScaffold extends StatelessWidget {
                       )
                     else
                       const SizedBox(width: 48),
-                    const Spacer(),
-                    IconButton(
-                      tooltip: AccessLogApp.of(context).isDark
-                          ? _copy(context, 'Light mode', 'الوضع الفاتح')
-                          : _copy(context, 'Dark mode', 'الوضع الليلي'),
-                      onPressed: () => AccessLogApp.of(context).toggleTheme(),
-                      icon: Icon(
-                        AccessLogApp.of(context).isDark
-                            ? Icons.light_mode_outlined
-                            : Icons.dark_mode_outlined,
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            tooltip: AccessLogApp.of(context).isDark
+                                ? _copy(context, 'Light mode', 'الوضع الفاتح')
+                                : _copy(context, 'Dark mode', 'الوضع الليلي'),
+                            onPressed: () =>
+                                AccessLogApp.of(context).toggleTheme(),
+                            icon: Icon(
+                              AccessLogApp.of(context).isDark
+                                  ? Icons.light_mode_outlined
+                                  : Icons.dark_mode_outlined,
+                            ),
+                          ),
+                          Flexible(
+                            child: TextButton.icon(
+                              onPressed: () =>
+                                  AccessLogApp.of(context).toggleLocale(),
+                              icon: const Icon(Icons.language, size: 18),
+                              label: Text(context.strings.t('language')),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => AccessLogApp.of(context).toggleLocale(),
-                      icon: const Icon(Icons.language, size: 18),
-                      label: Text(context.strings.t('language')),
                     ),
                   ],
                 ),
@@ -401,9 +413,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   onChanged: (value) =>
                       setState(() => remember = value ?? false),
                 ),
-                Text(
-                  _copy(context, 'Remember me', 'تذكرني'),
-                  style: AppTypography.label,
+                Flexible(
+                  child: Text(
+                    _copy(context, 'Remember me', 'تذكرني'),
+                    style: AppTypography.label,
+                  ),
                 ),
               ],
             ),
@@ -577,48 +591,191 @@ class _PreviewSelector extends StatelessWidget {
   );
 }
 
-class ForgotPasswordScreen extends StatelessWidget {
-  const ForgotPasswordScreen({super.key});
+class ForgotPasswordScreen extends StatefulWidget {
+  const ForgotPasswordScreen({super.key, this.cubit});
+  final ForgotPasswordCubit? cubit;
   @override
-  Widget build(BuildContext context) => AuthScaffold(
-    showBack: true,
-    title: _copy(context, 'Forgot password?', 'نسيت كلمة المرور؟'),
-    subtitle: _copy(
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final _form = GlobalKey<FormState>();
+  final _username = TextEditingController();
+  final _focus = FocusNode();
+  late final ForgotPasswordCubit _cubit;
+
+  @override
+  void initState() {
+    super.initState();
+    _cubit = widget.cubit ?? services<ForgotPasswordCubit>();
+  }
+
+  @override
+  void dispose() {
+    _username.dispose();
+    _focus.dispose();
+    if (widget.cubit == null) unawaited(_cubit.close());
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_cubit.state.status == ForgotPasswordStatus.loading) return;
+    if (_form.currentState?.validate() != true) {
+      _focus.requestFocus();
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    unawaited(_cubit.submit(_username.text));
+  }
+
+  String _error(Failure? failure) => switch (failure) {
+    ServiceFailure(:final message) => message,
+    ValidationFailure() => _copy(
       context,
-      'Enter your registered username or mobile number. We’ll send a verification code.',
-      'أدخل اسم المستخدم أو رقم الهاتف المسجل وسنرسل رمز التحقق.',
+      'Enter your username.',
+      'أدخل اسم المستخدم.',
     ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          keyboardType: TextInputType.text,
-          decoration: InputDecoration(
-            labelText: _copy(
-              context,
-              'Username or mobile number',
-              'اسم المستخدم أو رقم الهاتف',
-            ),
-            prefixIcon: const Icon(Icons.person_search_outlined),
-          ),
-        ),
-        const SizedBox(height: 20),
-        AppButton(
-          label: _copy(context, 'Continue', 'متابعة'),
-          icon: Icons.arrow_forward,
-          expanded: true,
-          onPressed: () => Navigator.pushNamed(context, AppRoutes.otp),
-        ),
-        const SizedBox(height: 18),
-        _SecurityNote(
-          text: _copy(
-            context,
-            'For your security, the destination is partially hidden.',
-            'لحمايتك، يتم إخفاء جزء من بيانات الاستلام.',
-          ),
-        ),
-      ],
+    NetworkFailure() => _copy(
+      context,
+      'Check your internet connection and try again.',
+      'تحقّق من اتصال الإنترنت وحاول مرة أخرى.',
     ),
+    TimeoutFailure() => _copy(
+      context,
+      'The request timed out. Please try again.',
+      'انتهت مهلة الطلب. حاول مرة أخرى.',
+    ),
+    _ => _copy(
+      context,
+      'Unable to send the reset link. Please try again.',
+      'تعذّر إرسال رابط الاستعادة. حاول مرة أخرى.',
+    ),
+  };
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) => BlocBuilder<ForgotPasswordCubit, ForgotPasswordState>(
+    bloc: _cubit,
+    builder: (context, state) {
+      final sent = state.status == ForgotPasswordStatus.success;
+      final loading = state.status == ForgotPasswordStatus.loading;
+      return AuthScaffold(
+        showBack: !sent,
+        title: sent
+            ? _copy(context, 'Reset link sent', 'تم إرسال رابط الاستعادة')
+            : _copy(context, 'Forgot password?', 'نسيت كلمة المرور؟'),
+        subtitle: sent
+            ? _copy(
+                context,
+                'Check your registered email to reset your password.',
+                'تحقّق من بريدك الإلكتروني المسجّل لإعادة تعيين كلمة المرور.',
+              )
+            : _copy(
+                context,
+                'Enter your username to receive a password reset link by email.',
+                'أدخل اسم المستخدم لإرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.',
+              ),
+        child: sent
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Icon(
+                    Icons.mark_email_read_outlined,
+                    color: AppColors.success,
+                    size: 64,
+                  ),
+                  const SizedBox(height: 20),
+                  Semantics(
+                    liveRegion: true,
+                    child: Text(
+                      _copy(
+                        context,
+                        'The link expires in ${state.expiresInMinutes} minutes.',
+                        'تنتهي صلاحية الرابط خلال ${state.expiresInMinutes} دقيقة.',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: AppTypography.body,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  AppButton(
+                    label: _copy(
+                      context,
+                      'Back to sign in',
+                      'العودة لتسجيل الدخول',
+                    ),
+                    expanded: true,
+                    icon: Icons.login,
+                    onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      AppRoutes.login,
+                      (_) => false,
+                    ),
+                  ),
+                ],
+              )
+            : Form(
+                key: _form,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      controller: _username,
+                      focusNode: _focus,
+                      enabled: !loading,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      autofillHints: const [AutofillHints.username],
+                      textInputAction: TextInputAction.done,
+                      validator: (value) => (value ?? '').trim().isEmpty
+                          ? _copy(
+                              context,
+                              'Enter your username.',
+                              'أدخل اسم المستخدم.',
+                            )
+                          : null,
+                      onFieldSubmitted: (_) => _submit(),
+                      decoration: InputDecoration(
+                        labelText: _copy(context, 'Username', 'اسم المستخدم'),
+                        prefixIcon: const Icon(Icons.person_search_outlined),
+                      ),
+                    ),
+                    if (state.status == ForgotPasswordStatus.failure) ...[
+                      const SizedBox(height: 16),
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          _error(state.failure),
+                          style: const TextStyle(color: AppColors.error),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    AppButton(
+                      label: _copy(
+                        context,
+                        'Send Reset Link',
+                        'إرسال رابط الاستعادة',
+                      ),
+                      icon: Icons.send_outlined,
+                      expanded: true,
+                      loading: loading,
+                      onPressed: loading ? null : _submit,
+                    ),
+                    const SizedBox(height: 18),
+                    _SecurityNote(
+                      text: _copy(
+                        context,
+                        'Complete the password reset using the secure link in your email.',
+                        'أكمل إعادة تعيين كلمة المرور عبر الرابط الآمن في بريدك الإلكتروني.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      );
+    },
   );
 }
 

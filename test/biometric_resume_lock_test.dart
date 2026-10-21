@@ -40,6 +40,8 @@ void main() {
     lock = BiometricResumeLock(
       session: session,
       biometrics: biometrics,
+      enabled: true,
+      timeout: const Duration(minutes: 5),
       now: () => now,
     );
   });
@@ -101,6 +103,7 @@ void main() {
     final custom = BiometricResumeLock(
       session: session,
       biometrics: biometrics,
+      enabled: true,
       timeout: const Duration(minutes: 1),
       now: () => now,
     );

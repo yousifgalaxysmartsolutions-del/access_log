@@ -20,9 +20,11 @@ class IncidentExecutionRepositoryImpl implements IncidentExecutionRepository {
     this.forms, {
     TodayInProcessIncidentService? inProcessIncidents,
     this.incidentDetails,
+    this.getAvailableLocation,
   }) : _inProcessIncidents = inProcessIncidents;
   final TodayInProcessIncidentService? _inProcessIncidents;
   final IncidentDetailsRepository? incidentDetails;
+  final Future<String?> Function()? getAvailableLocation;
   final IncidentApiService api;
   final ApiRequestContextProvider context;
   final CapFormRepository forms;
@@ -73,7 +75,20 @@ class IncidentExecutionRepositoryImpl implements IncidentExecutionRepository {
         return const FailureResult(ValidationFailure());
       }
       final stamp = _inProcessIncidents?.beginObservation();
-      final result = await forms.submit(execution.toStatusChange());
+      String? availableLocation;
+      if ((execution.lat.isEmpty || execution.long.isEmpty) &&
+          getAvailableLocation != null) {
+        try {
+          availableLocation = await getAvailableLocation!().timeout(
+            const Duration(seconds: 2),
+          );
+        } catch (_) {
+          // Optional cached GPS never blocks or fails an otherwise valid action.
+        }
+      }
+      final result = await forms.submit(
+        execution.toStatusChange(availableLocation: availableLocation),
+      );
       if (result is Success<void> && stamp != null) {
         await _inProcessIncidents!.recordSuccessfulAction(
           incidentId: execution.incidentId,

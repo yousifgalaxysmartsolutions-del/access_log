@@ -245,11 +245,12 @@ class IncidentFormSubmission implements CapPayload {
     required List<CapFormAnswer> answers,
     this.lat = '',
     this.long = '',
-    this.photo = '',
+    this.photo,
   }) : answers = List.unmodifiable(answers);
   final int incidentId, newStatusId, actionTypeId;
   final int? formId;
-  final String lat, long, photo;
+  final String lat, long;
+  final CapFormEvidence? photo;
   final String remark;
   final List<CapFormAnswer> answers;
   @override
@@ -258,9 +259,10 @@ class IncidentFormSubmission implements CapPayload {
     'NewStatusId': newStatusId,
     'ActionTypeId': actionTypeId,
     'Remark': remark,
-    'lat': lat,
-    'long': long,
-    'photo': photo,
+    'GpsLat': lat,
+    'GpsLong': long,
+    'Photo': photo?.extension ?? '',
+    'PhotoBytes': photo?.bytes.toList(),
     'QuestionFormId': formId,
     'Answers': answers.map((a) => a.toJson()).toList(),
   };

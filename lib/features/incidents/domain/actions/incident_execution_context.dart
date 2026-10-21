@@ -11,6 +11,7 @@ class IncidentExecutionContext implements CapPayload {
     this.lat = '',
     this.long = '',
     this.photo = '',
+    this.photoEvidence,
     this.questionFormId,
     List<CapFormAnswer> answers = const [],
     this.remark = '',
@@ -21,6 +22,10 @@ class IncidentExecutionContext implements CapPayload {
   int get actionTypeId => selectedAction.actionTypeId;
   int? get newStatusId => selectedAction.newStatusId;
   final String lat, long, photo;
+
+  /// Raw evidence retained for IncidentStatusChange; Assign keeps its existing
+  /// independent Base64 contract in [photo].
+  final CapFormEvidence? photoEvidence;
   final int? questionFormId;
   final List<CapFormAnswer> answers;
   final String remark;
@@ -32,6 +37,7 @@ class IncidentExecutionContext implements CapPayload {
         lat: lat,
         long: long,
         photo: photo,
+        photoEvidence: photoEvidence,
         questionFormId: questionFormId,
         answers: answers,
         remark: remark ?? this.remark,
@@ -58,22 +64,42 @@ class IncidentExecutionContext implements CapPayload {
       lat: parts?[0].trim() ?? '',
       long: parts?[1].trim() ?? '',
       photo: photo == null ? '' : base64Encode(photo.bytes),
+      photoEvidence: photo,
       questionFormId: formId,
       answers: answers,
       remark: remark,
     );
   }
-  IncidentFormSubmission toStatusChange() => IncidentFormSubmission(
-    incidentId: incidentId,
-    newStatusId: newStatusId!,
-    actionTypeId: actionTypeId,
-    formId: questionFormId,
-    remark: remark,
-    answers: answers,
-    lat: lat,
-    long: long,
-    photo: photo,
-  );
+  IncidentFormSubmission toStatusChange({String? availableLocation}) {
+    List<String>? coordinates(String? raw) {
+      final parts = raw?.split(',').map((part) => part.trim()).toList();
+      if (parts?.length != 2) return null;
+      final latitude = double.tryParse(parts![0]);
+      final longitude = double.tryParse(parts[1]);
+      if (latitude == null ||
+          longitude == null ||
+          !latitude.isFinite ||
+          !longitude.isFinite ||
+          latitude.abs() > 90 ||
+          longitude.abs() > 180) {
+        return null;
+      }
+      return parts;
+    }
+
+    final gps = coordinates('$lat,$long') ?? coordinates(availableLocation);
+    return IncidentFormSubmission(
+      incidentId: incidentId,
+      newStatusId: newStatusId!,
+      actionTypeId: actionTypeId,
+      formId: questionFormId,
+      remark: remark,
+      answers: answers,
+      lat: gps?[0] ?? '',
+      long: gps?[1] ?? '',
+      photo: photoEvidence,
+    );
+  }
 
   /// Assign payload deliberately omits ActionTypeId and NewStatusId.
   @override

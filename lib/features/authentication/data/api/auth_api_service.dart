@@ -12,6 +12,12 @@ abstract class AuthApiService {
   @POST(ApiEndpoints.login)
   @Extra({'public': true})
   Future<ApiResponse> login(@Body() LoginRequest request);
+
+  @POST(ApiEndpoints.forgotPasswordRequestReset)
+  @Extra({'public': true, 'omitAuthorization': true, 'sensitiveLogging': true})
+  Future<ApiResponse> forgotPasswordRequestReset(
+    @Body() CapRequest<ForgotPasswordRequestData> request,
+  );
   @POST(ApiEndpoints.refresh)
   @Extra({'public': true})
   Future<ApiResponse> refresh(

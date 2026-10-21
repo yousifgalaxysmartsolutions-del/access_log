@@ -12,6 +12,7 @@ import '../../../../core/network/cap/api_request_context.dart';
 import '../../../../core/network/cap/cap_request.dart';
 import '../../../../core/network/cap/cap_device_app_info.dart';
 import '../../../../core/network/cap/general_response.dart';
+import '../../../../core/network/cap/cap_locale_holder.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl(
@@ -19,12 +20,61 @@ class AuthRepositoryImpl implements AuthRepository {
     this.session, {
     AuthApiService? refreshApi,
     CapDeviceAppInfoProvider? deviceInfo,
+    ApiRequestContextProvider? requestContext,
   }) : _refreshApi = refreshApi,
+       _requestContext = requestContext,
        _deviceInfo = deviceInfo ?? CapDeviceAppInfoProvider();
   final AuthApiService api;
   final SessionManager session;
   final AuthApiService? _refreshApi;
   final CapDeviceAppInfoProvider _deviceInfo;
+  final ApiRequestContextProvider? _requestContext;
+
+  @override
+  Future<Result<ForgotPasswordResetData>> requestPasswordReset(
+    String username,
+  ) => apiGuard(() async {
+    if (username.trim().isEmpty) {
+      throw const ApiException(ValidationFailure());
+    }
+    final context =
+        _requestContext ??
+        ApiRequestContextProvider(users: null, deviceInfo: _deviceInfo);
+    final envelope = await context.wrapUnauthenticated(
+      ForgotPasswordRequestData(username.trim()),
+    );
+    final response = await api.forgotPasswordRequestReset(envelope);
+    final arabic = CapLocaleHolder.instance.isArabic;
+    final fallback = arabic
+        ? 'تعذّر إرسال رابط إعادة تعيين كلمة المرور. حاول مرة أخرى.'
+        : 'Unable to send the password reset link. Please try again.';
+    // Evaluate business status before decoding the success-only payload.
+    final metadata = GeneralResponse.parse<Object?>(response, (raw) => raw);
+    if (!metadata.isSuccess) {
+      throw ApiException(
+        ServiceFailure(
+          'cap_result_${metadata.resultCode}',
+          metadata.messageFor(isArabic: arabic) ?? fallback,
+        ),
+      );
+    }
+    final raw = metadata.data;
+    if (raw is! Map<String, dynamic>) {
+      throw ApiException(ServiceFailure('reset_link_unavailable', fallback));
+    }
+    // Recovery responses may contain email addresses/reset links. Do not dump
+    // even malformed payloads into parse diagnostics for this public endpoint.
+    late final ForgotPasswordResetData data;
+    try {
+      data = ForgotPasswordResetData.fromJson(raw);
+    } on Object {
+      throw ApiException(ServiceFailure('reset_link_invalid', fallback));
+    }
+    if (data.emailSent != true || (data.linkExpiresInMinutes ?? 0) <= 0) {
+      throw ApiException(ServiceFailure('reset_link_unavailable', fallback));
+    }
+    return data;
+  });
   @override
   Future<Result<AuthUser>> login({
     required String username,
@@ -110,6 +160,17 @@ class AuthRepositoryImpl implements AuthRepository {
 class DemoAuthRepository implements AuthRepository {
   DemoAuthRepository(this.session);
   final SessionManager session;
+  @override
+  Future<Result<ForgotPasswordResetData>> requestPasswordReset(
+    String username,
+  ) async => FailureResult(
+    ServiceFailure(
+      'demo_reset_unavailable',
+      CapLocaleHolder.instance.isArabic
+          ? 'إرسال رابط الاستعادة متاح عند الاتصال بالخادم الفعلي.'
+          : 'Reset emails require the live authentication service.',
+    ),
+  );
   @override
   Future<Result<AuthUser>> login({
     required String username,

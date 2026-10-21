@@ -8,6 +8,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import '../../../../core/localization/app_strings.dart';
+import '../../../../core/network/cap/cap_device_app_info.dart';
 import '../../../../widgets/app_button.dart';
 import '../../data/models/cap_form_models.dart';
 import '../../data/services/cap_video_compressor.dart';
@@ -32,6 +33,13 @@ class CapNativeFormCapture {
       mimeType: file.mimeType ?? 'image/jpeg',
       bytes: await file.readAsBytes(),
     );
+  }
+
+  /// Optional metadata only: no permission dialog, no fresh fix or geofence.
+  Future<String?> getAvailableLocation() async {
+    final position = await CapDeviceAppInfoProvider.readAvailableCoordinates();
+    if (position == null) return null;
+    return '${position.latitude},${position.longitude}';
   }
 
   /// Shared foreground location retrieval for form fields and action requirements.

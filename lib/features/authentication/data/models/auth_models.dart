@@ -3,6 +3,25 @@ import '../../../../core/network/cap/cap_request.dart';
 import '../../../../core/network/cap/cap_locale_holder.dart';
 part 'auth_models.g.dart';
 
+class ForgotPasswordRequestData implements CapPayload {
+  const ForgotPasswordRequestData(this.username);
+  final String username;
+  @override
+  Map<String, dynamic> toJson() => {'UserName': username};
+}
+
+class ForgotPasswordResetData {
+  const ForgotPasswordResetData({this.emailSent, this.linkExpiresInMinutes});
+  final bool? emailSent;
+  final int? linkExpiresInMinutes;
+
+  factory ForgotPasswordResetData.fromJson(Map<String, dynamic> json) =>
+      ForgotPasswordResetData(
+        emailSent: json['emailSent'] as bool?,
+        linkExpiresInMinutes: json['linkExpiresInMinutes'] as int?,
+      );
+}
+
 @JsonSerializable(createToJson: false)
 class LoginTokenData {
   const LoginTokenData({

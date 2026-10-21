@@ -273,6 +273,139 @@ void main() {
     },
   );
 
+  test(
+    'status change uses raw photo bytes/actual extension through confirmation edits',
+    () async {
+      final bytes = Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10, 1, 2]);
+      final collected = IncidentExecutionContext.collected(
+        incidentId: 26,
+        action: action(4, IncidentAction.hold),
+        location: '30.0444,31.2357',
+        photo: CapFormEvidence(
+          name: 'camera.jpg',
+          mimeType: 'image/jpeg',
+          bytes: bytes,
+        ),
+        answers: const [],
+      ).withInput(remark: 'Hold for spare parts');
+      expect(await executor.execute(collected), isA<Success<void>>());
+      final sent = transport.payload('IncidentStatusChange');
+      expect(sent['Photo'], 'png');
+      expect(sent['PhotoBytes'], bytes.toList());
+      expect(sent['GpsLat'], '30.0444');
+      expect(sent['GpsLong'], '31.2357');
+      expect(sent['Remark'], 'Hold for spare parts');
+      expect(sent.keys, isNot(contains('photo')));
+      expect(sent.keys, isNot(contains('lat')));
+      expect(sent.keys, isNot(contains('long')));
+    },
+  );
+
+  test(
+    'optional cached GPS is sent without altering action requirements',
+    () async {
+      var lookups = 0;
+      final repository = IncidentExecutionRepositoryImpl(
+        executor.api,
+        executor.context,
+        executor.forms,
+        getAvailableLocation: () async {
+          lookups++;
+          return '0,31.2357';
+        },
+      );
+      final input = IncidentExecutionContext(
+        incidentId: 26,
+        selectedAction: action(4, IncidentAction.hold),
+      );
+      expect(await repository.execute(input), isA<Success<void>>());
+      expect(lookups, 1);
+      final sent = transport.payload('IncidentStatusChange');
+      expect(sent['GpsLat'], '0');
+      expect(sent['GpsLong'], '31.2357');
+      expect(sent['Photo'], '');
+      expect(sent['PhotoBytes'], isNull);
+      expect(transport.trace, ['IncidentStatusChange']);
+    },
+  );
+
+  test(
+    'GPS failure or invalid cached coordinates never fail the status action',
+    () async {
+      for (final source in <Future<String?> Function()>[
+        () async => null,
+        () async => 'not-a-location',
+        () async => '91,181',
+        () async => throw StateError('Location unavailable'),
+      ]) {
+        final repository = IncidentExecutionRepositoryImpl(
+          executor.api,
+          executor.context,
+          executor.forms,
+          getAvailableLocation: source,
+        );
+        expect(
+          await repository.execute(
+            IncidentExecutionContext(
+              incidentId: 26,
+              selectedAction: action(4, IncidentAction.hold),
+            ),
+          ),
+          isA<Success<void>>(),
+        );
+        final sent = transport.payload('IncidentStatusChange');
+        expect(sent['GpsLat'], '');
+        expect(sent['GpsLong'], '');
+      }
+    },
+  );
+
+  test(
+    'already collected GPS is not refreshed or replaced with cached GPS',
+    () async {
+      final repository = IncidentExecutionRepositoryImpl(
+        executor.api,
+        executor.context,
+        executor.forms,
+        getAvailableLocation: () async =>
+            throw StateError('Must not request location twice'),
+      );
+      final input = IncidentExecutionContext.collected(
+        incidentId: 26,
+        action: action(4, IncidentAction.hold),
+        location: '30,31',
+        answers: const [],
+      );
+      expect(await repository.execute(input), isA<Success<void>>());
+      expect(transport.payload('IncidentStatusChange')['GpsLat'], '30');
+      expect(transport.payload('IncidentStatusChange')['GpsLong'], '31');
+    },
+  );
+
+  test(
+    'optional GPS timeout still submits the action without coordinates',
+    () async {
+      final unavailable = Completer<String?>();
+      final repository = IncidentExecutionRepositoryImpl(
+        executor.api,
+        executor.context,
+        executor.forms,
+        getAvailableLocation: () => unavailable.future,
+      );
+      expect(
+        await repository.execute(
+          IncidentExecutionContext(
+            incidentId: 26,
+            selectedAction: action(4, IncidentAction.hold),
+          ),
+        ),
+        isA<Success<void>>(),
+      );
+      expect(transport.payload('IncidentStatusChange')['GpsLat'], '');
+      expect(transport.payload('IncidentStatusChange')['GpsLong'], '');
+    },
+  );
+
   void fullConfiguration() {
     transport.configuration = {
       'gpsRequired': true,
@@ -361,9 +494,20 @@ void main() {
           assign ? 'AssignIncident' : 'IncidentStatusChange',
         );
         expect(sent['IncidentId'], 26);
-        expect(sent['lat'], '27.2112');
-        expect(sent['long'], '43.3565');
-        expect(sent['photo'], 'AQID');
+        if (assign) {
+          expect(sent['lat'], '27.2112');
+          expect(sent['long'], '43.3565');
+          expect(sent['photo'], 'AQID');
+          expect(sent.containsKey('PhotoBytes'), false);
+        } else {
+          expect(sent['GpsLat'], '27.2112');
+          expect(sent['GpsLong'], '43.3565');
+          expect(sent['Photo'], 'jpg');
+          expect(sent['PhotoBytes'], [1, 2, 3]);
+          expect(sent.containsKey('photo'), false);
+          expect(sent.containsKey('lat'), false);
+          expect(sent.containsKey('long'), false);
+        }
         expect(sent['Remark'], 'current remark');
         expect(sent['QuestionFormId'], 1087);
         expect(sent['Answers'], [

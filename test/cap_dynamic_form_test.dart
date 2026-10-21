@@ -495,9 +495,10 @@ void main() {
       'ActionTypeId': 3,
       'QuestionFormId': 1085,
       'Remark': 'approve',
-      'lat': '',
-      'long': '',
-      'photo': '',
+      'GpsLat': '',
+      'GpsLong': '',
+      'Photo': '',
+      'PhotoBytes': null,
       'Answers': [
         {
           'QuestionId': 708,

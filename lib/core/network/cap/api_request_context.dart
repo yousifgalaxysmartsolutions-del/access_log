@@ -23,6 +23,21 @@ class ApiRequestContextProvider {
 
   Future<CapDeviceAppInfo> resolveDeviceInfo() => _deviceInfo.resolve();
 
+  /// Explicit public-auth envelope. Never reads stored/current user or tokens.
+  /// Authenticated [wrap] retains its original validation and JSON contract.
+  Future<CapRequest<T>> wrapUnauthenticated<T>(T data) async {
+    final info = await _deviceInfo.resolve();
+    return CapRequest<T>(
+      userId: 0,
+      deviceIdentifier: await _deviceInfo.resolveDeviceIdentifier(),
+      deviceToken: info.deviceToken ?? defaultDeviceToken,
+      osVersion: info.osVersion,
+      appVersion: info.appVersion,
+      deviceType: info.deviceType,
+      data: data,
+    );
+  }
+
   /// Uses the same authenticated context as ordinary requests, but explicitly
   /// opts into Sprint 1's metadata-only serialization. `wrap` stays unchanged.
   Future<Result<CapRequest<Null>>> wrapMetadataOnly({

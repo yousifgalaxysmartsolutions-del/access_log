@@ -20,7 +20,7 @@ class SafeLoggingInterceptor extends Interceptor {
     String? error,
     Map<String, Object?>? details,
   }) {
-    if (!kDebugMode) return;
+    if (!kDebugMode || request.extra['sensitiveLogging'] == true) return;
     // Construct from host/path only: never print URL user-info or raw query.
     final uri = request.uri;
     final url = Uri(

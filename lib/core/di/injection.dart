@@ -11,6 +11,8 @@ import '../../features/incidents/domain/usecases/incident_execution_use_case.dar
 import '../../features/incidents/domain/repositories/incident_action_configuration_repository.dart';
 import '../../features/incidents/domain/usecases/get_incident_action_configuration_use_case.dart';
 import 'package:dio/dio.dart';
+import '../../features/authentication/domain/usecases/forgot_password_use_case.dart';
+import '../../features/authentication/presentation/bloc/forgot_password_cubit.dart';
 import '../../features/periodic_photo/data/today_in_process_store.dart';
 import '../../features/periodic_photo/domain/today_in_process_incident_service.dart';
 import '../../features/reports/data/repositories/engineers_activity_report_repository_impl.dart';
@@ -164,10 +166,17 @@ Future<void> configureDependencies({
             session,
             refreshApi: AuthApiService(refreshDio),
             deviceInfo: services<CapDeviceAppInfoProvider>(),
+            requestContext: services<ApiRequestContextProvider>(),
           ),
   );
   services.registerLazySingleton<LoginUseCase>(
     () => LoginUseCase(services<AuthRepository>()),
+  );
+  services.registerLazySingleton<ForgotPasswordUseCase>(
+    () => ForgotPasswordUseCase(services<AuthRepository>()),
+  );
+  services.registerFactory<ForgotPasswordCubit>(
+    () => ForgotPasswordCubit(services<ForgotPasswordUseCase>()),
   );
   services.registerLazySingleton<GetUserProfileUseCase>(
     () => GetUserProfileUseCase(services<AuthRepository>()),
@@ -513,6 +522,7 @@ void registerIncidentActionConfigurationDependencies() {
         services<IncidentApiService>(),
         services<ApiRequestContextProvider>(),
         services<CapFormRepository>(),
+        getAvailableLocation: CapNativeFormCapture().getAvailableLocation,
         incidentDetails: services.isRegistered<IncidentDetailsRepository>()
             ? services<IncidentDetailsRepository>()
             : null,

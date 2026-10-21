@@ -21,6 +21,11 @@ class AuthInterceptor extends Interceptor {
     RequestInterceptorHandler handler,
   ) async {
     if (!_protected(options)) {
+      if (options.extra['omitAuthorization'] == true) {
+        options.headers.removeWhere(
+          (key, _) => key.toLowerCase() == 'authorization',
+        );
+      }
       handler.next(options);
       return;
     }
