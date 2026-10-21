@@ -1,10 +1,10 @@
 package com.orange.accesslog.access_log_plus
 
 import com.orange.accesslog.access_log_plus.location.LocationBridge
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private var locationBridge: LocationBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

@@ -8,6 +8,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/routes/app_routes.dart';
 import 'core/theme/app_theme.dart';
 import 'features/app_requirements/presentation/app_requirement_guard.dart';
+import 'features/app_requirements/presentation/biometric_resume_guard.dart';
 import 'features/gps_tracking/domain/gps_requirement_gate.dart';
 import 'features/gps_tracking/domain/gps_tracking_manager.dart';
 import 'features/gps_tracking/domain/gps_tracking_sync_service.dart';
@@ -24,6 +25,7 @@ class AccessLogApp extends StatefulWidget {
 class AccessLogAppState extends State<AccessLogApp>
     with WidgetsBindingObserver {
   final _navigator = GlobalKey<NavigatorState>();
+  final _biometricRoutes = BiometricLockRouteObserver();
   StreamSubscription<SessionStatus>? _sessionSubscription;
   @override
   void initState() {
@@ -114,6 +116,7 @@ class AccessLogAppState extends State<AccessLogApp>
     _syncLocale();
     return MaterialApp(
       navigatorKey: _navigator,
+      navigatorObservers: [_biometricRoutes],
       initialRoute:
           services.isRegistered<SessionManager>() &&
               services<SessionManager>().isAuthenticated
@@ -132,8 +135,10 @@ class AccessLogAppState extends State<AccessLogApp>
       // first, then the periodic photo — which single blocking screen (if any)
       // covers the navigator. Presentation-only and inert when a gate's graph
       // is not registered.
-      builder: (context, child) =>
-          AppRequirementGuard(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => BiometricResumeGuard(
+        routeObserver: _biometricRoutes,
+        child: AppRequirementGuard(child: child ?? const SizedBox.shrink()),
+      ),
     );
   }
 }
