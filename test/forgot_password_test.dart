@@ -372,6 +372,32 @@ void main() {
 
   for (final language in ['en', 'ar']) {
     testWidgets(
+      'biometric login only shows unavailable snackbar in $language',
+      (tester) async {
+        await tester.pumpWidget(const AccessLogApp());
+        AccessLogApp.of(
+          tester.element(find.byType(LoginScreen)),
+        ).setLocale(Locale(language));
+        await tester.pumpAndSettle();
+        final button = find.text(
+          language == 'ar' ? 'الدخول بالبصمة' : 'Sign in with biometrics',
+        );
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+        expect(
+          find.text(
+            language == 'ar' ? 'لم يتم التفعيل حتى الآن' : 'Not activated yet',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(transport.calls, isEmpty);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+
+    testWidgets(
       'existing Login link opens reset UI in $language and returns after email success',
       (tester) async {
         tester.view.physicalSize = const Size(320, 640);

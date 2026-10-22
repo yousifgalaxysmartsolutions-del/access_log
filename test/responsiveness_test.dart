@@ -39,6 +39,29 @@ void main() {
 
   tearDown(() {});
 
+  testWidgets(
+    'notifications in More only show unavailable snackbar in both languages',
+    (tester) async {
+      for (final language in ['en', 'ar']) {
+        await tester.pumpWidget(
+          app(const Scaffold(body: MoreHubScreen()), Locale(language)),
+        );
+        await tester.tap(
+          find.text(language == 'ar' ? 'الإشعارات' : 'Notifications'),
+        );
+        await tester.pump();
+        expect(
+          find.text(
+            language == 'ar' ? 'لم يتم التفعيل حتى الآن' : 'Not activated yet',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byType(NotificationCenterScreen), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+  );
+
   testWidgets('core screens fit six mobile viewports in LTR and RTL', (
     tester,
   ) async {

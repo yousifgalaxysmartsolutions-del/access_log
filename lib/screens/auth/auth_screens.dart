@@ -445,22 +445,19 @@ class _LoginScreenState extends State<LoginScreen> {
           style: AppButtonStyle.outline,
           expanded: true,
           onPressed: () {
-            if (services.isRegistered<AppEnvironment>() &&
-                !services<AppEnvironment>().mockAuthentication) {
-              ScaffoldMessenger.of(context).showSnackBar(
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
                 SnackBar(
                   content: Text(
                     _copy(
                       context,
-                      'Please sign in with your password.',
-                      'يرجى تسجيل الدخول بكلمة المرور.',
+                      'Not activated yet',
+                      'لم يتم التفعيل حتى الآن',
                     ),
                   ),
                 ),
               );
-              return;
-            }
-            _login();
           },
         ),
         const SizedBox(height: 24),

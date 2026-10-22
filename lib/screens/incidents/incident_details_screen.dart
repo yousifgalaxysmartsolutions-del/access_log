@@ -358,39 +358,39 @@ class _IncidentDetailsScreenState extends State<IncidentDetailsScreen>
               //     0,
               //   ),
               // ),
-            if (status == CapIncidentStatus.inProcess &&
-                constraints.maxHeight >= 720 &&
-                !largeText)
-              ActiveInterventionBanner(
-                site:
-                    '${widget.incident.siteName} • ${widget.incident.siteCode}',
-                onLocationTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => LocationSimulationScreen(
-                      site: widget.incident.siteName,
-                    ),
-                  ),
-                ),
-                onWarningTap: () => showGeofenceWarning(
-                  context,
-                  siteName: widget.incident.siteName,
-                  onViewIncident: () {},
-                ),
-                onPhotoTap: () => showPhotoReminder(
-                  context,
-                  incidentNumber: widget.incident.number,
-                  site: widget.incident.siteName,
-                  onCapture: () => Navigator.push(
+              if (status == CapIncidentStatus.inProcess &&
+                  constraints.maxHeight >= 720 &&
+                  !largeText)
+                ActiveInterventionBanner(
+                  site:
+                      '${widget.incident.siteName} • ${widget.incident.siteCode}',
+                  onLocationTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => MockEvidenceCaptureScreen(
+                      builder: (_) => LocationSimulationScreen(
                         site: widget.incident.siteName,
                       ),
                     ),
                   ),
+                  onWarningTap: () => showGeofenceWarning(
+                    context,
+                    siteName: widget.incident.siteName,
+                    onViewIncident: () {},
+                  ),
+                  onPhotoTap: () => showPhotoReminder(
+                    context,
+                    incidentNumber: widget.incident.number,
+                    site: widget.incident.siteName,
+                    onCapture: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MockEvidenceCaptureScreen(
+                          site: widget.incident.siteName,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
             Container(
               color: Theme.of(context).cardColor,
               child: TabBar(
@@ -875,6 +875,7 @@ class _TabNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final failed = message != null;
+    if (!loading && !failed) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(

@@ -439,13 +439,13 @@ class _DashboardContent extends StatelessWidget {
       Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            tooltip: context.tr('Try Identity Check', 'تجربة التحقق من الهوية'),
-            onPressed: () => showMockIdentityVerification(context),
-            icon: const Icon(Icons.face_retouching_natural),
-            color: AppColors.orange,
-            visualDensity: VisualDensity.compact,
-          ),
+          // IconButton(
+          //   tooltip: context.tr('Try Identity Check', 'تجربة التحقق من الهوية'),
+          //   onPressed: () => showMockIdentityVerification(context),
+          //   icon: const Icon(Icons.face_retouching_natural),
+          //   color: AppColors.orange,
+          //   visualDensity: VisualDensity.compact,
+          // ),
           IconButton(
             tooltip: context.tr('Tower Map', 'خريطة الأبراج'),
             onPressed: () => Navigator.push(

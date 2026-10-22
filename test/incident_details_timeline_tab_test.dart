@@ -226,6 +226,9 @@ void main() {
 
       expect(repository.timelineCalls, 1);
       expect(repository.timelineIds, [kRealIncidentId]);
+      expect(find.text('Incident lifecycle'), findsOneWidget);
+      expect(find.text('Refreshing…'), findsNothing);
+      expect(find.text('جارٍ التحديث…'), findsNothing);
     });
 
     testWidgets('one tap issues exactly one request despite onTap + listener', (
@@ -439,7 +442,8 @@ void main() {
 
       await tapTab(tester, 'General');
       await settle(tester);
-      expect(find.text('General payload that must survive'), findsOneWidget);
+      // The title is intentionally present in both the header and General.
+      expect(find.text('General payload that must survive'), findsWidgets);
     });
 
     testWidgets(

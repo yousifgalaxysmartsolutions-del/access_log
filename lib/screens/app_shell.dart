@@ -87,12 +87,15 @@ class _AppShellState extends State<AppShell> {
           ),
           IconButton(
             tooltip: context.tr('Notifications', 'الإشعارات'),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const NotificationCenterScreen(),
+            onPressed: () => ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                    context.tr('Not activated yet', 'لم يتم التفعيل حتى الآن'),
+                  ),
+                ),
               ),
-            ),
             icon: Badge(
               label: const Text('3'),
               backgroundColor: AppColors.orange,

@@ -714,12 +714,18 @@ class MoreHubScreen extends StatelessWidget {
                 'المهام والتذكيرات والرسائل',
               ),
               badge: '4',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const NotificationCenterScreen(),
+              onTap: () => ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      context.tr(
+                        'Not activated yet',
+                        'لم يتم التفعيل حتى الآن',
+                      ),
+                    ),
+                  ),
                 ),
-              ),
             ),
             const Divider(height: 1, indent: 62),
             _MenuTile(
